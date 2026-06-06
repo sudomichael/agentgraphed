@@ -1,0 +1,26 @@
+node_modules/
+.next/
+out/
+dist/
+*.log
+.DS_Store
+.env*
+!.env.example
+
+# Build / packaging artifacts
+agentgraphed-*.tgz
+*.tsbuildinfo
+
+# LiteLLM pricing snapshot — refetched at build time
+src/lib/pricing-data/
+
+# Local SQLite (default DB lives in ~/.agentgraphed, but devs sometimes point
+# AGENTGRAPHED_DATA_DIR at the repo)
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+.agentgraphed/
+
+# Editor / OS junk
+.vscode/
+.idea/
