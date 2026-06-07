@@ -63,30 +63,40 @@ export default async function TimelinePage({
         {groups.length === 0 && (
           <div className="text-body-sm text-ink-mute text-center py-12">No sessions match these filters.</div>
         )}
-        {groups.map((g) => (
-          <section key={g.day}>
-            <header className="flex items-baseline gap-3 mb-3">
-              <h2 className="text-headline-md text-ink">
-                {new Date(g.dayMs).toLocaleDateString(undefined, {
-                  weekday: 'long',
-                  month: 'long',
-                  day: 'numeric',
-                  year: 'numeric',
-                })}
-              </h2>
-              <span className="text-body-sm text-ink-mute font-mono tabular">
-                {g.sessions.length} sessions · {fmtTokens(g.totalTokens)} tok · {fmtCost(g.totalCost)}
-              </span>
-            </header>
-            <div className="card divide-y divide-surface-2">
-              <div className="p-3 space-y-1">
-                {g.sessions.map((s) => (
-                  <SessionItem key={s.id} session={s} />
-                ))}
+        {groups.map((g) => {
+          // Sessions that closed on this day drive the day total; the entry
+          // count includes started/continued/closed roles for visibility.
+          const closingCount = g.entries.filter((e) => e.role === 'single' || e.role === 'closed').length;
+          return (
+            <section key={g.day}>
+              <header className="flex items-baseline gap-3 mb-3">
+                <h2 className="text-headline-md text-ink">
+                  {new Date(g.dayMs).toLocaleDateString(undefined, {
+                    weekday: 'long',
+                    month: 'long',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                </h2>
+                <span className="text-body-sm text-ink-mute font-mono tabular">
+                  {closingCount} closed · {g.entries.length} active · {fmtTokens(g.totalTokens)} tok · {fmtCost(g.totalCost)}
+                </span>
+              </header>
+              <div className="card divide-y divide-surface-2">
+                <div className="p-3 space-y-1">
+                  {g.entries.map((e) => (
+                    <SessionItem
+                      key={`${e.session.id}-${e.role}`}
+                      session={e.session}
+                      role={e.role}
+                      spanDays={e.spanDays}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          </section>
-        ))}
+            </section>
+          );
+        })}
       </div>
     </div>
   );

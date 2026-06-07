@@ -74,14 +74,28 @@ export function getTodaySummary() {
   return row;
 }
 
+export type SessionDayRole = 'single' | 'started' | 'continued' | 'closed';
+
+export type TimelineEntry = {
+  session: SessionRow;
+  role: SessionDayRole;
+  spanDays: number;
+};
+
 export type DayGroup = {
   day: string;
   dayMs: number;
-  sessions: SessionRow[];
+  entries: TimelineEntry[];
   totalTokens: number;
   totalCost: number;
   providers: Record<string, number>;
 };
+
+// Local midnight ms for a given timestamp.
+function startOfDayMs(ts: number): number {
+  const d = new Date(ts);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
 
 export function getTimeline(opts: {
   limit?: number;
@@ -112,19 +126,51 @@ export function getTimeline(opts: {
     .all(...params, limit) as SessionRow[];
 
   const groups = new Map<string, DayGroup>();
-  for (const s of rows) {
-    const key = dayKey(s.started_at);
+  const getOrCreate = (dayMsLocal: number): DayGroup => {
+    const key = dayKey(dayMsLocal);
     let g = groups.get(key);
     if (!g) {
-      const d = new Date(s.started_at);
-      const dayMs = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-      g = { day: key, dayMs, sessions: [], totalTokens: 0, totalCost: 0, providers: {} };
+      g = { day: key, dayMs: dayMsLocal, entries: [], totalTokens: 0, totalCost: 0, providers: {} };
       groups.set(key, g);
     }
-    g.sessions.push(s);
-    g.totalTokens += s.input_tokens + s.output_tokens + s.cache_read_tokens + s.cache_write_tokens;
-    g.totalCost += s.est_cost_usd;
-    g.providers[s.provider] = (g.providers[s.provider] || 0) + 1;
+    return g;
+  };
+
+  const DAY = 86_400_000;
+  for (const s of rows) {
+    const startDay = startOfDayMs(s.started_at);
+    const endDay = startOfDayMs(s.ended_at);
+    const spanDays = Math.max(1, Math.round((endDay - startDay) / DAY) + 1);
+    const sessionTokens = s.input_tokens + s.output_tokens + s.cache_read_tokens + s.cache_write_tokens;
+
+    if (startDay === endDay) {
+      const g = getOrCreate(startDay);
+      g.entries.push({ session: s, role: 'single', spanDays: 1 });
+      g.totalTokens += sessionTokens;
+      g.totalCost += s.est_cost_usd;
+      g.providers[s.provider] = (g.providers[s.provider] || 0) + 1;
+      continue;
+    }
+
+    for (let d = startDay; d <= endDay; d += DAY) {
+      const g = getOrCreate(d);
+      const role: SessionDayRole =
+        d === startDay ? 'started' : d === endDay ? 'closed' : 'continued';
+      g.entries.push({ session: s, role, spanDays });
+      // Attribute tokens/cost only to the day the session closed — avoids
+      // multiplying a multi-day session across N day totals.
+      if (role === 'closed') {
+        g.totalTokens += sessionTokens;
+        g.totalCost += s.est_cost_usd;
+        g.providers[s.provider] = (g.providers[s.provider] || 0) + 1;
+      }
+    }
+  }
+
+  // Within each day, show sessions in chronological-of-day order (newest first
+  // by the session's started_at, same as before).
+  for (const g of groups.values()) {
+    g.entries.sort((a, b) => b.session.started_at - a.session.started_at);
   }
   return [...groups.values()].sort((a, b) => b.dayMs - a.dayMs);
 }
