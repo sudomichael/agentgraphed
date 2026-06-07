@@ -23,18 +23,25 @@ switch (subcommand) {
   case '-h':
     printHelp();
     process.exit(0);
+  case 'version':
+  case '--version':
+  case '-v':
+    console.log(require('../package.json').version);
+    process.exit(0);
 }
 
 function printHelp() {
-  console.log(`AgentGraphed — local-first analytics for AI coding sessions
+  const version = require('../package.json').version;
+  console.log(`AgentGraphed v${version} — local-first analytics for AI coding sessions
 
 Usage:
-  agentgraphed           Start the dashboard (default)
-  agentgraphed --help    Show this message.
+  agentgraphed              Start the dashboard (default)
+  agentgraphed --help       Show this message
+  agentgraphed --version    Print the installed version
 
 Environment:
-  AGENTGRAPHED_DATA_DIR  Where to store the SQLite DB (default: ~/.agentgraphed)
-  AGENTGRAPHED_PORT      Starting port to try (default: 3737)
+  AGENTGRAPHED_DATA_DIR     Where to store the SQLite DB (default: ~/.agentgraphed)
+  AGENTGRAPHED_PORT         Starting port to try (default: 3737)
 `);
 }
 
