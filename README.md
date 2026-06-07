@@ -12,8 +12,7 @@ See what you built with Claude Code and Codex CLI — across every project, ever
 
 </div>
 
-<!-- TODO: hero screenshot -->
-<!-- ![AgentGraphed dashboard](./docs/screenshots/dashboard.png) -->
+![AgentGraphed dashboard](./docs/screenshots/dashboard.png)
 
 ---
 
@@ -45,6 +44,31 @@ That's it. The dashboard opens at `http://localhost:3737`. Re-run any time to re
 - **Cost estimates** — uses LiteLLM's auto-updating pricing data (2700+ models covered)
 - **Range picker** — 7d / 30d / 90d / all-time on every chart
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%">
+      <a href="./docs/screenshots/timeline.png"><img src="./docs/screenshots/timeline.png" alt="Timeline — every session grouped by day, with started/continued/closed badges for multi-day sessions" /></a>
+      <p align="center"><sub><b>Timeline</b> — every session, grouped by day. Multi-day sessions get <code>STARTED · SPANS Nd</code> / <code>CONTINUED</code> / <code>CLOSED</code> badges so nothing hides on one bucket.</sub></p>
+    </td>
+    <td width="50%">
+      <a href="./docs/screenshots/session-detail.png"><img src="./docs/screenshots/session-detail.png" alt="Session detail — chat-bubble view of a past conversation with resume and copy-context actions" /></a>
+      <p align="center"><sub><b>Session detail</b> — read past conversations in a clean chat-bubble view. One click to resume in Claude Code or copy a primer for a fresh chat.</sub></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <a href="./docs/screenshots/projects.png"><img src="./docs/screenshots/projects.png" alt="Projects — every repo auto-detected with session count, tokens, and cost" /></a>
+      <p align="center"><sub><b>Projects</b> — every git repo you've worked in, ranked by activity. See which projects are eating your week.</sub></p>
+    </td>
+    <td width="50%">
+      <a href="./docs/screenshots/analytics.png"><img src="./docs/screenshots/analytics.png" alt="Analytics — sessions per day, provider split, model breakdown" /></a>
+      <p align="center"><sub><b>Analytics</b> — sessions per day, provider split, model breakdown with cost per model.</sub></p>
+    </td>
+  </tr>
+</table>
+
 ## Privacy
 
 - Everything lives in `~/.agentgraphed/agentgraphed.sqlite` on your machine.
@@ -67,22 +91,6 @@ Without an API key, sessions show the first line of the first prompt as the titl
 
 Click *Settings → LLM provider*, paste your key, then *Classify uncategorized*. Cost is fractions of a cent per session — typically $0.01–0.03 for a few hundred sessions.
 
-## Optional: capture sessions from a team
-
-If you run an agency or team and want sessions from every dev to land in one dashboard, install the SessionEnd hook on each laptop:
-
-```bash
-npx agentgraphed onboard https://your-host.example.com <ingest-token>
-```
-
-This patches `~/.claude/settings.json` to upload each completed session to your hosted instance. No background daemon, no friction.
-
-To remove:
-
-```bash
-npx agentgraphed offboard
-```
-
 ## Configuration
 
 Environment variables:
@@ -90,7 +98,7 @@ Environment variables:
 | Variable                  | Default                                   | What it does                                   |
 | ------------------------- | ----------------------------------------- | ---------------------------------------------- |
 | `AGENTGRAPHED_PORT`       | `3737`                                    | Starting port (auto-increments if in use)      |
-| `AGENTGRAPHED_DATA_DIR`   | `~/.agentgraphed`                         | Where to store SQLite + uploads                |
+| `AGENTGRAPHED_DATA_DIR`   | `~/.agentgraphed`                         | Where to store the SQLite DB                   |
 | `AGENTGRAPHED_CLAUDE_DIR` | `~/.claude/projects`                      | Override Claude Code log location              |
 | `AGENTGRAPHED_CODEX_DIR`  | `~/.codex/sessions`                       | Override Codex log location                    |
 
