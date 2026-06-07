@@ -2,9 +2,9 @@
 
 # AgentGraphed
 
-**Local-first analytics dashboard for AI coding sessions.**
+**The Claude Code usage monitor.** Local-first analytics dashboard for Claude Code & Codex CLI sessions.
 
-See what you built with Claude Code and Codex CLI — across every project, every session, every dollar.
+See every session, every project, every dollar — across your whole machine. No login. No cloud. Nothing leaves your computer.
 
 [![npm version](https://img.shields.io/npm/v/agentgraphed?color=00f5ff)](https://www.npmjs.com/package/agentgraphed)
 [![license](https://img.shields.io/badge/license-MIT-success)](./LICENSE)
@@ -12,40 +12,55 @@ See what you built with Claude Code and Codex CLI — across every project, ever
 
 </div>
 
-![AgentGraphed dashboard](./docs/screenshots/dashboard.png)
-
 ---
 
-## Why
-
-You've been pair-coding with AI for months. Where did all those sessions go? Which projects ate your week? How much have you spent? AgentGraphed reads your local Claude Code and Codex CLI logs and turns them into a real dashboard — timelines, project breakdowns, model usage, cost estimates, and one-click resume.
-
-No login. No cloud. Nothing leaves your machine.
-
-## Install
+## Install & run — one command
 
 ```bash
 npx agentgraphed
 ```
 
-That's the whole install command — there's nothing to clone, configure, or sign into. On first run, npm downloads the package (~15 MB) and the dashboard opens at <http://localhost:3737>. Re-run any time to refresh; npm caches the package after the first install, so subsequent runs start in seconds.
+That's the whole install. No clone, no signup, no config file. The dashboard opens at <http://localhost:3737> the moment it's ready. Re-run any time to scan for new sessions.
 
-> **First run takes 30–60 seconds** while npm downloads. You'll see a `npm warn exec` line and a few `npm warn deprecated` warnings from transitive dependencies — those are harmless and will get cleaned up in a future release. Once you see `› Ready. Press Ctrl+C to stop.` in your terminal, the dashboard is live.
->
-> **Requires Node 20+.** Check yours with `node --version`. If you don't have Node, [download it here](https://nodejs.org/) (the LTS version is fine).
->
-> **Prefer a global install?** `npm install -g agentgraphed && agentgraphed` works too.
+**Prefer a global install?**
 
-## Using AgentGraphed
+```bash
+npm install -g agentgraphed
+agentgraphed
+```
 
-After `npx agentgraphed`, the dashboard opens automatically. From there:
+**Don't have npx / Node?** Install Node 20+ from <https://nodejs.org> (the LTS version is fine). Check yours with `node --version`.
 
-- **Browse your work** — Timeline groups every session by day. Click any session to read the full conversation in a chat-bubble view.
-- **Resume a session** — On any session page, click *Resume session* to copy `cd <cwd> && claude --resume <id>` to your clipboard. Paste it in your terminal to pick up where you left off in Claude Code.
-- **Find a specific project** — Projects ranks every git repo by activity. Click one to see only that repo's sessions.
-- **Refresh after more coding** — Re-run `npx agentgraphed`. It re-scans your CLI logs and indexes anything new in seconds; already-ingested sessions are skipped.
-- **Get clean titles and categories** *(optional)* — Open *Settings → LLM provider*, paste an Anthropic or OpenAI key, then click *Classify uncategorized*. Past-tense titles like "Fixed Stripe checkout bug" replace the raw first prompt.
-- **Stop** — Hit `Ctrl+C` in the terminal that's running it. Your data stays in `~/.agentgraphed/` for next time.
+### What to expect on first run
+
+1. `npx agentgraphed` downloads the package once (~15 MB, takes 30-60s on a typical connection). Subsequent runs start in seconds — npm caches the package.
+2. You'll see one `npm warn exec` line and a couple of `npm warn deprecated` warnings from transitive dependencies. These are harmless; they'll go away in a future release.
+3. The dashboard server boots. You'll see:
+   ```
+   › Starting AgentGraphed on http://localhost:3737
+   › Scanning local AI coding sessions…
+     Found 142 Claude + 8 Codex sessions (14821 messages indexed in 1943ms)
+   › Ready. Press Ctrl+C to stop.
+   ```
+4. Your browser opens to the dashboard automatically.
+5. To stop the server, hit `Ctrl+C` in that terminal. Your indexed data stays at `~/.agentgraphed/agentgraphed.sqlite` for next time.
+
+![AgentGraphed dashboard](./docs/screenshots/dashboard.png)
+
+---
+
+## What it does
+
+AgentGraphed reads your local Claude Code (`~/.claude/projects/`) and Codex CLI (`~/.codex/sessions/`) JSONL logs and turns them into a real dashboard. There's no agent to install on each session, no API key required to get started — it just reads files your CLI tools were already writing.
+
+After `npx agentgraphed`, here's how to use it:
+
+- **Browse your work** — Timeline groups every session by day. Multi-day sessions show `STARTED · SPANS Nd` / `CONTINUED` / `CLOSED` badges so nothing hides on a single bucket. Click any session to read the full conversation in a chat-bubble view.
+- **Resume a session** — On any session page, click *Resume session* to copy `cd <cwd> && claude --resume <id>` to your clipboard. Paste it in your terminal to pick up where you left off.
+- **Find a specific project** — Projects ranks every git repo you've worked in by activity, tokens, and cost. Click one to see only that repo's sessions.
+- **Refresh after more coding** — Re-run `npx agentgraphed`. It re-scans your CLI logs incrementally; already-ingested sessions are skipped.
+- **Get clean titles and categories** *(optional, BYO key)* — Open *Settings → LLM provider*, paste an Anthropic or OpenAI key, then click *Classify uncategorized*. Past-tense titles like "Fixed Stripe checkout bug" replace the raw first prompt. Cost is typically $0.01-0.03 for a few hundred sessions.
+- **Live quota probe** *(optional, opt-in)* — On the dashboard, click *Probe now* (or toggle *Poll every 60s*) for live 5h & 7d rate-limit utilization read straight from Anthropic. Each probe costs a single token (~$0.00006).
 
 ## Features
 
