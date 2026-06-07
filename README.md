@@ -28,9 +28,13 @@ No login. No cloud. Nothing leaves your machine.
 npx agentgraphed
 ```
 
-That's it. The dashboard opens at `http://localhost:3737`. Re-run any time to refresh.
+That's the whole install command — there's nothing to clone, configure, or sign into. On first run, npm downloads the package (~15 MB) and the dashboard opens at <http://localhost:3737>. Re-run any time to refresh; npm caches the package after the first install, so subsequent runs start in seconds.
 
-> Requires Node 20+. First launch scans `~/.claude/projects/` and `~/.codex/sessions/` — sessions appear immediately, no configuration.
+> **First run takes 30–60 seconds** while npm downloads. You'll see a `npm warn exec` line and a few `npm warn deprecated` warnings from transitive dependencies — those are harmless and will get cleaned up in a future release. Once you see `› Ready. Press Ctrl+C to stop.` in your terminal, the dashboard is live.
+>
+> **Requires Node 20+.** Check yours with `node --version`. If you don't have Node, [download it here](https://nodejs.org/) (the LTS version is fine).
+>
+> **Prefer a global install?** `npm install -g agentgraphed && agentgraphed` works too.
 
 ## Using AgentGraphed
 

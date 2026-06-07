@@ -4,6 +4,17 @@ All notable changes to this project will be documented here.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] — 2026-06-07
+
+### Added
+- **Live Quota card on the dashboard** — opt-in probe against Anthropic that reports your real 5-hour and 7-day rate-limit utilization (read straight from `anthropic-ratelimit-unified-*` response headers). Off by default; click *Probe now* for a single check, or toggle *Poll every 60s* for continuous polling. Each probe is one token on Haiku 4.5 (~$0.00006).
+- `agentgraphed --version` / `-v` flag.
+
+### Changed
+- README rewritten to be honest about the first run: expected download size, `npm warn deprecated` noise, Node 20+ requirement, global-install alternative.
+- npm metadata: `description` now leads with the SEO target phrase; `homepage` points at agentgraphed.com instead of the GitHub README anchor; `keywords` sharpened toward the actual terms users search for.
+- New `publish.yml` GitHub Actions workflow: pushing a `v*.*.*` tag triggers an automated build → install verification → `npm publish --provenance` → GitHub release. No more interactive 2FA dance.
+
 ## [0.1.1] — 2026-06-06
 
 ### Fixed

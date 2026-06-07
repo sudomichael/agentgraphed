@@ -1,0 +1,80 @@
+name: Publish to npm
+
+# Triggered by pushing a tag like v0.1.2. The tag must match the version in
+# package.json — we verify that before publishing so a typo can't ship the
+# wrong version. Workflow does the same build + install verification as CI,
+# then runs `npm publish` against the public registry using a long-lived
+# automation token (NPM_TOKEN repo secret) so no interactive 2FA is needed.
+#
+# To cut a release locally:
+#   1. Bump version in package.json (e.g. 0.1.2)
+#   2. Update CHANGELOG.md
+#   3. git commit -m "chore(release): 0.1.2"
+#   4. git tag v0.1.2 && git push origin main --tags
+# That's it — GH Actions takes over.
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # for npm provenance attestation
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Verify tag matches package.json version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME (=$TAG_VERSION) does not match package.json version $PKG_VERSION" >&2
+            exit 1
+          fi
+          echo "Publishing v$PKG_VERSION"
+
+      - name: Build (standalone bundle)
+        run: npm run build
+
+      - name: Verify packed install boots
+        run: |
+          npm pack
+          SANDBOX=$(mktemp -d)
+          cd "$SANDBOX"
+          npm init -y > /dev/null
+          npm install "$GITHUB_WORKSPACE"/agentgraphed-*.tgz --no-audit --no-fund
+          AGENTGRAPHED_DATA_DIR=$SANDBOX/.data AGENTGRAPHED_PORT=4747 \
+            ./node_modules/.bin/agentgraphed &
+          PID=$!
+          for i in {1..30}; do
+            if curl -sf http://localhost:4747/ > /dev/null; then break; fi
+            sleep 1
+          done
+          curl -sf -o /dev/null -w "GET / → %{http_code}\n" http://localhost:4747/
+          kill $PID
+
+      - name: Publish to npm
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            **npm:** https://www.npmjs.com/package/agentgraphed/v/${{ github.ref_name }}
+
+            Install: `npx agentgraphed`

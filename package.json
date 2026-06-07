@@ -1,24 +1,21 @@
 {
   "name": "agentgraphed",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": false,
-  "description": "Local-first analytics dashboard for Claude Code & Codex CLI sessions. See what you built.",
+  "description": "Claude Code usage monitor — local-first analytics dashboard for Claude Code & Codex CLI sessions. See every session, every project, every dollar. No login, no cloud.",
   "keywords": [
-    "claude",
+    "claude-code-usage-monitor",
+    "claude-code-usage",
+    "claude-code-monitor",
+    "claude-code-analytics",
     "claude-code",
-    "codex",
-    "ai",
-    "llm",
-    "usage",
-    "analytics",
-    "dashboard",
-    "cli",
-    "developer-tools",
-    "claude-code-usage-monitor"
+    "codex-cli",
+    "ai-coding-analytics",
+    "local-first"
   ],
   "author": "Michael Patrick <devmpk@gmail.com>",
   "license": "MIT",
-  "homepage": "https://github.com/sudomichael/agentgraphed#readme",
+  "homepage": "https://agentgraphed.com",
   "bugs": {
     "url": "https://github.com/sudomichael/agentgraphed/issues"
   },
