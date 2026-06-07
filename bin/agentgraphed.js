@@ -18,14 +18,6 @@ const ROOT = path.resolve(__dirname, '..');
 // --- Subcommands (handled inline, no server boot) ---
 const subcommand = process.argv[2];
 switch (subcommand) {
-  case 'onboard':
-    require('./onboard.js');
-    process.exit(0);
-    break;
-  case 'offboard':
-    require('./offboard.js');
-    process.exit(0);
-    break;
   case 'help':
   case '--help':
   case '-h':
@@ -37,11 +29,8 @@ function printHelp() {
   console.log(`AgentGraphed — local-first analytics for AI coding sessions
 
 Usage:
-  agentgraphed                       Start the dashboard (default)
-  agentgraphed onboard <url> <token> Install a SessionEnd hook that uploads
-                                     each Claude Code session to <url>.
-  agentgraphed offboard              Remove the SessionEnd hook.
-  agentgraphed --help                Show this message.
+  agentgraphed           Start the dashboard (default)
+  agentgraphed --help    Show this message.
 
 Environment:
   AGENTGRAPHED_DATA_DIR  Where to store the SQLite DB (default: ~/.agentgraphed)

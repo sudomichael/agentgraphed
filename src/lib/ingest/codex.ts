@@ -7,7 +7,6 @@ import { getSqlite } from '../db/client';
 import { resolveProject, upsertProject } from '../projects';
 import { estimateCost } from '../pricing';
 import { getSetting } from '../queries';
-import { dataDir } from '../db/paths';
 import type { IngestStats } from './claude';
 
 type CodexLine = {
@@ -62,7 +61,7 @@ export async function ingestCodex(opts: { onProgress?: (msg: string) => void } =
     process.env.AGENTGRAPH_CODEX_DIR ||
     join(homedir(), '.codex', 'sessions');
   const stats: IngestStats = { filesScanned: 0, filesIngested: 0, sessions: 0, messages: 0 };
-  const files = [...walkSessions(base), ...walkSessions(join(dataDir(), 'uploads', 'codex'))];
+  const files = walkSessions(base);
   stats.filesScanned = files.length;
 
   const db = getSqlite();

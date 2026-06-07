@@ -7,7 +7,6 @@ import { getSqlite } from '../db/client';
 import { resolveProject, upsertProject } from '../projects';
 import { estimateCost } from '../pricing';
 import { getSetting } from '../queries';
-import { dataDir } from '../db/paths';
 
 function walkJsonl(dir: string, out: string[]) {
   let entries;
@@ -120,15 +119,11 @@ export async function ingestClaude(opts: { onProgress?: (msg: string) => void } 
   const stats: IngestStats = { filesScanned: 0, filesIngested: 0, sessions: 0, messages: 0 };
 
   const files: string[] = [];
-  const roots: string[] = [base, join(dataDir(), 'uploads', 'claude')];
-  for (const root of roots) {
-    if (!existsSync(root)) continue;
-    // Each root has a layout of <user-or-cwd>/<encoded-cwd-or-session>/<file.jsonl>
-    // For the local Claude root, that's <encoded-cwd>/<session-uuid>.jsonl
-    // For the uploads root, that's <user@host>/<encoded-cwd>/<session-uuid>.jsonl
-    for (const dirent of readdirSync(root, { withFileTypes: true })) {
+  // Layout: <encoded-cwd>/<session-uuid>.jsonl
+  if (existsSync(base)) {
+    for (const dirent of readdirSync(base, { withFileTypes: true })) {
       if (!dirent.isDirectory()) continue;
-      walkJsonl(join(root, dirent.name), files);
+      walkJsonl(join(base, dirent.name), files);
     }
   }
   stats.filesScanned = files.length;
