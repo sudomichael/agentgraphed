@@ -1,25 +1,37 @@
-// POST /api/quota-probe — run one live probe against Anthropic and persist the
-// resulting snapshot. Returns the snapshot for the UI to render.
+// POST /api/quota-probe?provider=claude|codex — run one live probe and persist
+// the resulting snapshot. Returns the snapshot for the UI to render.
 //
-// This is a SOLO-USER, LOCAL-ONLY endpoint: it reads the user's own Claude
-// Code OAuth token from disk and probes Anthropic with it. It is never reached
-// from any hosted/team-tier code path — that surface was intentionally removed.
-//
-// Cost: one probe is ~1 input + 1 output token on Haiku 4.5 (~$0.00006).
-// Polling at 60s = ~$0.086/day. Fully opt-in: the dashboard surfaces a button
-// + a Settings toggle for auto-poll, both default off.
+// Solo-user, local-only: reads the user's own OAuth credentials (Claude) or
+// stored API key (Codex/OpenAI). Never reached from any hosted code path.
 
+import { NextRequest } from 'next/server';
 import { probeClaudeQuota } from '@/lib/quota/probe';
+import { probeCodexQuota } from '@/lib/quota/codex';
 import { getSqlite } from '@/lib/db/client';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function POST() {
-  const result = await probeClaudeQuota();
+type Snapshot = {
+  observedAt: number;
+  planType: string | null;
+  primary: { pct: number; resetsAt: number; status: string | null } | null;
+  secondary: { pct: number; resetsAt: number; status: string | null } | null;
+  tokenWasRefreshed: boolean;
+};
+
+export async function POST(req: NextRequest) {
+  const provider = (req.nextUrl.searchParams.get('provider') ?? 'claude').toLowerCase();
+  if (provider !== 'claude' && provider !== 'codex') {
+    return new Response(JSON.stringify({ ok: false, error: `Unknown provider: ${provider}` }), {
+      status: 400, headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  const result = provider === 'claude' ? await probeClaudeQuota() : await probeCodexQuota();
   if (!result.ok) {
-    return new Response(JSON.stringify({ ok: false, error: result.error, httpStatus: result.httpStatus }), {
-      status: 200, // 200 with ok:false so the UI gets the structured error
+    return new Response(JSON.stringify({ ok: false, provider, error: result.error, httpStatus: result.httpStatus }), {
+      status: 200,
       headers: { 'content-type': 'application/json' },
     });
   }
@@ -30,30 +42,32 @@ export async function POST() {
        provider, observed_at, plan_type,
        primary_pct, primary_window_minutes, primary_resets_at,
        secondary_pct, secondary_window_minutes, secondary_resets_at
-     ) VALUES ('claude', ?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
+    provider,
     result.observedAt,
     result.planType,
-    result.primary ? Math.round(result.primary.utilization * 1000) / 10 : null, // 0-100, one decimal
-    result.primary ? 300 : null,                                                 // 5h window
+    result.primary ? Math.round(result.primary.utilization * 1000) / 10 : null,
+    result.primary ? (provider === 'claude' ? 300 : 1) : null,
     result.primary ? result.primary.resetsAt : null,
     result.secondary ? Math.round(result.secondary.utilization * 1000) / 10 : null,
     result.secondary ? 7 * 24 * 60 : null,
     result.secondary ? result.secondary.resetsAt : null,
   );
 
-  return new Response(JSON.stringify({
-    ok: true,
-    snapshot: {
-      observedAt: result.observedAt,
-      planType: result.planType,
-      primary: result.primary
-        ? { pct: result.primary.utilization * 100, resetsAt: result.primary.resetsAt, status: result.primary.status }
-        : null,
-      secondary: result.secondary
-        ? { pct: result.secondary.utilization * 100, resetsAt: result.secondary.resetsAt, status: result.secondary.status }
-        : null,
-      tokenWasRefreshed: result.tokenWasRefreshed,
-    },
-  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  const snapshot: Snapshot = {
+    observedAt: result.observedAt,
+    planType: result.planType,
+    primary: result.primary
+      ? { pct: result.primary.utilization * 100, resetsAt: result.primary.resetsAt, status: result.primary.status }
+      : null,
+    secondary: result.secondary
+      ? { pct: result.secondary.utilization * 100, resetsAt: result.secondary.resetsAt, status: result.secondary.status }
+      : null,
+    tokenWasRefreshed: result.tokenWasRefreshed,
+  };
+
+  return new Response(JSON.stringify({ ok: true, provider, snapshot }), {
+    status: 200, headers: { 'content-type': 'application/json' },
+  });
 }

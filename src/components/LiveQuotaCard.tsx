@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+type Provider = 'claude' | 'codex';
+
 type Snapshot = {
   observedAt: number;
   planType: string | null;
@@ -16,48 +18,41 @@ type State =
   | { kind: 'ok'; snap: Snapshot }
   | { kind: 'err'; error: string };
 
-const POLL_INTERVAL_MS = 60_000;
-const LOCAL_STORAGE_KEY = 'agentgraphed.quota.autopoll';
+const PROVIDER_KEY = 'agentgraphed.quota.provider';
+const HIDDEN_KEY = 'agentgraphed.quota.hidden';
 
 function fmtRelative(ts: number): string {
   const ms = ts - Date.now();
-  if (ms <= 0) return 'resetting…';
+  if (ms <= 0) return 'now';
   const totalMin = Math.round(ms / 60_000);
+  if (totalMin < 1) return '<1m';
   if (totalMin < 60) return `${totalMin}m`;
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
-  return m === 0 ? `${h}h` : `${h}h ${m}m`;
-}
-
-function Bar({ pct, accent = 'bg-primary' }: { pct: number; accent?: string }) {
-  const clamped = Math.max(0, Math.min(100, pct));
-  return (
-    <div className="h-1.5 bg-surface-2 rounded-full overflow-hidden">
-      <div className={`h-full ${accent}`} style={{ width: `${clamped}%` }} />
-    </div>
-  );
+  return m === 0 ? `${h}h` : `${h}h${m}m`;
 }
 
 export function LiveQuotaCard() {
+  const [provider, setProvider] = useState<Provider>('claude');
+  const [hidden, setHidden] = useState(false);
   const [state, setState] = useState<State>({ kind: 'idle' });
-  const [autoPoll, setAutoPoll] = useState(false);
   const inFlight = useRef(false);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Restore auto-poll preference on mount; off by default.
+  // Restore persisted preferences.
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (stored === 'on') setAutoPoll(true);
+      const p = window.localStorage.getItem(PROVIDER_KEY);
+      if (p === 'claude' || p === 'codex') setProvider(p);
+      if (window.localStorage.getItem(HIDDEN_KEY) === 'true') setHidden(true);
     } catch { /* ignore */ }
   }, []);
 
-  const runProbe = useCallback(async () => {
+  const probe = useCallback(async (p: Provider) => {
     if (inFlight.current) return;
     inFlight.current = true;
-    setState((s) => (s.kind === 'ok' ? s : { kind: 'loading' }));
+    setState({ kind: 'loading' });
     try {
-      const resp = await fetch('/api/quota-probe', { method: 'POST' });
+      const resp = await fetch(`/api/quota-probe?provider=${p}`, { method: 'POST' });
       const body = (await resp.json()) as
         | { ok: true; snapshot: Snapshot }
         | { ok: false; error: string };
@@ -70,22 +65,31 @@ export function LiveQuotaCard() {
     }
   }, []);
 
-  // Manage the auto-poll interval.
-  useEffect(() => {
-    if (!autoPoll) {
-      if (timer.current) { clearInterval(timer.current); timer.current = null; }
-      return;
-    }
-    runProbe(); // immediate probe on enable
-    timer.current = setInterval(runProbe, POLL_INTERVAL_MS);
-    return () => {
-      if (timer.current) { clearInterval(timer.current); timer.current = null; }
-    };
-  }, [autoPoll, runProbe]);
+  function selectProvider(p: Provider) {
+    setProvider(p);
+    setState({ kind: 'idle' }); // clear stale snapshot when switching
+    try { window.localStorage.setItem(PROVIDER_KEY, p); } catch { /* ignore */ }
+  }
 
-  function toggleAutoPoll(next: boolean) {
-    setAutoPoll(next);
-    try { window.localStorage.setItem(LOCAL_STORAGE_KEY, next ? 'on' : 'off'); } catch { /* ignore */ }
+  function hide() {
+    setHidden(true);
+    try { window.localStorage.setItem(HIDDEN_KEY, 'true'); } catch { /* ignore */ }
+  }
+
+  // Hidden state: render only a tiny inline "Show quota" link the user can click
+  // to bring the strip back.
+  if (hidden) {
+    return (
+      <button
+        onClick={() => {
+          setHidden(false);
+          try { window.localStorage.setItem(HIDDEN_KEY, 'false'); } catch { /* ignore */ }
+        }}
+        className="text-[11px] text-ink-mute hover:text-primary font-mono"
+      >
+        + show live quota
+      </button>
+    );
   }
 
   const snap = state.kind === 'ok' ? state.snap : null;
@@ -93,106 +97,112 @@ export function LiveQuotaCard() {
   const isLoading = state.kind === 'loading';
 
   return (
-    <div className="card">
-      <div className="card-header flex items-center justify-between">
-        <span>Live Quota · Anthropic</span>
-        <div className="flex items-center gap-2 normal-case tracking-normal">
-          <label className="text-[11px] text-ink-mute flex items-center gap-1.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={autoPoll}
-              onChange={(e) => toggleAutoPoll(e.target.checked)}
-              className="accent-primary"
-            />
-            Poll every 60s
-          </label>
-          <button
-            onClick={runProbe}
-            disabled={isLoading}
-            className="btn !h-7 !px-2 text-[11px] disabled:opacity-50"
-          >
-            {isLoading ? 'Probing…' : 'Probe now'}
-          </button>
-        </div>
-      </div>
+    <div className="card flex items-stretch overflow-hidden">
+      <ProviderTabs provider={provider} onSelect={selectProvider} />
 
-      <div className="p-4">
+      <div className="flex-1 flex items-center gap-4 px-4 py-2.5 min-w-0">
         {snap ? (
-          <div className="space-y-4">
-            <QuotaRow
-              label="5-hour window"
+          <>
+            <Pill
+              label={provider === 'claude' ? '5h' : '1m'}
               snap={snap.primary}
-              fallback="Not reported"
+              accent="primary"
             />
-            <QuotaRow
-              label="7-day window"
-              snap={snap.secondary}
-              fallback="Not reported"
-              accent="bg-secondary"
-            />
-            <div className="flex items-center justify-between text-[11px] text-ink-mute">
-              <span>
-                {snap.planType ? `Plan: ${snap.planType}` : 'Plan: unknown'}
-                {snap.tokenWasRefreshed && <span className="ml-2">· token refreshed</span>}
-              </span>
-              <span className="font-mono tabular">
-                Updated {fmtSince(snap.observedAt)} ago
-              </span>
+            {snap.secondary !== null && (
+              <Pill label="7d" snap={snap.secondary} accent="secondary" />
+            )}
+            <div className="text-[11px] text-ink-mute font-mono tabular ml-auto">
+              {snap.planType && <span className="mr-3">plan: {snap.planType}</span>}
+              <span>updated {fmtSince(snap.observedAt)} ago</span>
             </div>
-          </div>
+          </>
         ) : err ? (
-          <div className="text-body-sm text-ink-dim">
-            <div className="text-error mb-1">Probe failed</div>
-            <div>{err}</div>
+          <div className="text-body-sm text-ink-dim flex-1 min-w-0">
+            <span className="text-error">Probe failed:</span>{' '}
+            <span className="text-ink-mute">{err}</span>
           </div>
+        ) : isLoading ? (
+          <div className="text-body-sm text-ink-mute">Probing {provider}…</div>
         ) : (
           <div className="text-body-sm text-ink-mute">
-            One probe costs ~$0.00006 (a single token on Haiku 4.5). Continuous polling at 60s is roughly $0.09/day.
-            Off by default. Click <em>Probe now</em> or enable <em>Poll every 60s</em>.
+            Live quota{' '}
+            <span className="text-[11px]">
+              ({provider === 'claude' ? '~$0.00006/probe' : 'requires OpenAI key'})
+            </span>
           </div>
         )}
+      </div>
+
+      <div className="flex items-center gap-1 pr-2">
+        <button
+          onClick={() => probe(provider)}
+          disabled={isLoading}
+          className="text-[11px] font-mono uppercase tracking-wide px-2 py-1 text-ink-mute hover:text-primary disabled:opacity-50"
+        >
+          {isLoading ? '…' : snap ? 'refresh' : 'probe'}
+        </button>
+        <button
+          onClick={hide}
+          className="text-[14px] leading-none px-2 py-1 text-ink-mute hover:text-ink"
+          aria-label="Hide live quota"
+          title="Hide"
+        >
+          ×
+        </button>
       </div>
     </div>
   );
 }
 
-function QuotaRow({
+function ProviderTabs({ provider, onSelect }: { provider: Provider; onSelect: (p: Provider) => void }) {
+  return (
+    <div className="flex flex-col border-r border-surface-2 bg-surface-0/40">
+      {(['claude', 'codex'] as const).map((p) => (
+        <button
+          key={p}
+          onClick={() => onSelect(p)}
+          className={`text-[10px] font-mono uppercase tracking-wider px-3 py-1 transition-colors flex-1 ${
+            provider === p ? 'text-primary bg-surface-1' : 'text-ink-mute hover:text-ink'
+          }`}
+        >
+          {p}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Pill({
   label,
   snap,
-  fallback,
   accent,
 }: {
   label: string;
   snap: { pct: number; resetsAt: number; status: string | null } | null;
-  fallback: string;
-  accent?: string;
+  accent: 'primary' | 'secondary';
 }) {
   if (!snap) {
     return (
-      <div>
-        <div className="flex items-baseline justify-between text-body-sm mb-1">
-          <span className="text-ink">{label}</span>
-          <span className="text-ink-mute font-mono text-code-sm">{fallback}</span>
-        </div>
-        <Bar pct={0} accent={accent} />
+      <div className="flex items-center gap-2 text-body-sm text-ink-mute">
+        <span className="text-label-caps">{label}</span>
+        <span className="font-mono text-code-sm">—</span>
       </div>
     );
   }
   const pct = Math.round(snap.pct);
-  const statusColor =
-    snap.status === 'allowed_warning' || pct >= 80 ? 'text-secondary' :
-    snap.status === 'allowed' || pct < 80 ? 'text-ink' :
-    'text-error';
+  const accentClass = accent === 'primary' ? 'bg-primary' : 'bg-secondary';
   return (
-    <div>
-      <div className="flex items-baseline justify-between text-body-sm mb-1">
-        <span className="text-ink">{label}</span>
-        <span className="font-mono text-code-sm tabular">
-          <span className={statusColor}>{pct}%</span>
-          <span className="text-ink-mute"> · resets in {fmtRelative(snap.resetsAt)}</span>
-        </span>
+    <div className="flex items-center gap-2 min-w-0">
+      <span className="text-label-caps text-ink-mute">{label}</span>
+      <div className="w-24 h-1.5 bg-surface-2 rounded-full overflow-hidden">
+        <div className={`h-full ${accentClass}`} style={{ width: `${Math.min(100, pct)}%` }} />
       </div>
-      <Bar pct={pct} accent={accent} />
+      <span className="font-mono text-code-sm tabular text-ink whitespace-nowrap">
+        {pct}%
+      </span>
+      <span className="font-mono text-code-sm text-ink-mute whitespace-nowrap">
+        · resets {fmtRelative(snap.resetsAt)}
+      </span>
     </div>
   );
 }
