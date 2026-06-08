@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
+import { SidebarQuotaWidget } from './SidebarQuotaWidget';
 
 const items = [
   { href: '/', label: 'Dashboard', icon: '◧' },
@@ -27,6 +28,7 @@ export function Sidebar() {
           See your AI work
         </div>
       </div>
+      <SidebarQuotaWidget />
       <nav className="px-2 py-3 flex-1 flex flex-col gap-0.5">
         {items.map((it) => {
           const active = it.href === '/' ? pathname === '/' : pathname.startsWith(it.href);
