@@ -2,6 +2,12 @@ import { getSqlite } from './db/client';
 import { dayKey } from './format';
 import { normalizeModelName } from './pricing';
 import { sessionCategories as _sessionCategories } from './sessionDisplay';
+import { ttlMemo } from './cache';
+
+// 5-second TTL keeps fast click-around feeling instant while staying short
+// enough that auto-ingest results land on the very next interaction after the
+// scan completes. Pure heuristic; tune if needed.
+const READ_TTL_MS = 5_000;
 
 export type SessionRow = {
   id: string;
@@ -188,16 +194,18 @@ export type ProjectRow = {
 };
 
 export function getProjects(): ProjectRow[] {
-  return getSqlite()
-    .prepare(
-      `SELECT p.id, p.name, p.root_path, p.git_remote, p.first_seen, p.last_active,
-              COUNT(s.id) AS sessions,
-              COALESCE(SUM(s.input_tokens + s.output_tokens + s.cache_read_tokens + s.cache_write_tokens), 0) AS tokens,
-              COALESCE(SUM(s.est_cost_usd), 0) AS cost
-       FROM projects p LEFT JOIN sessions s ON s.project_id = p.id
-       GROUP BY p.id ORDER BY p.last_active DESC`,
-    )
-    .all() as ProjectRow[];
+  return ttlMemo('getProjects', READ_TTL_MS, () =>
+    getSqlite()
+      .prepare(
+        `SELECT p.id, p.name, p.root_path, p.git_remote, p.first_seen, p.last_active,
+                COUNT(s.id) AS sessions,
+                COALESCE(SUM(s.input_tokens + s.output_tokens + s.cache_read_tokens + s.cache_write_tokens), 0) AS tokens,
+                COALESCE(SUM(s.est_cost_usd), 0) AS cost
+         FROM projects p LEFT JOIN sessions s ON s.project_id = p.id
+         GROUP BY p.id ORDER BY p.last_active DESC`,
+      )
+      .all() as ProjectRow[],
+  );
 }
 
 export function getProject(id: string): ProjectRow | null {
@@ -265,6 +273,10 @@ export function getAllSessions(opts: {
 export type DailyPoint = { day: string; sessions: number; tokens: number; cost: number };
 
 export function getDailySeries(days: number | null = 30): DailyPoint[] {
+  return ttlMemo(`getDailySeries:${days}`, READ_TTL_MS, () => _getDailySeries(days));
+}
+
+function _getDailySeries(days: number | null): DailyPoint[] {
   const db = getSqlite();
   let since: number;
   let bucketDays: number;
@@ -310,18 +322,24 @@ export function getDailySeries(days: number | null = 30): DailyPoint[] {
 }
 
 export function getProviderBreakdown(): { provider: string; sessions: number; tokens: number; cost: number }[] {
-  return getSqlite()
-    .prepare(
-      `SELECT provider,
-              COUNT(*) AS sessions,
-              SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens) AS tokens,
-              SUM(est_cost_usd) AS cost
-       FROM sessions GROUP BY provider ORDER BY tokens DESC`,
-    )
-    .all() as { provider: string; sessions: number; tokens: number; cost: number }[];
+  return ttlMemo('getProviderBreakdown', READ_TTL_MS, () =>
+    getSqlite()
+      .prepare(
+        `SELECT provider,
+                COUNT(*) AS sessions,
+                SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens) AS tokens,
+                SUM(est_cost_usd) AS cost
+         FROM sessions GROUP BY provider ORDER BY tokens DESC`,
+      )
+      .all() as { provider: string; sessions: number; tokens: number; cost: number }[],
+  );
 }
 
 export function getModelBreakdown(): { model: string; sessions: number; tokens: number; cost: number }[] {
+  return ttlMemo('getModelBreakdown', READ_TTL_MS, () => _getModelBreakdown());
+}
+
+function _getModelBreakdown(): { model: string; sessions: number; tokens: number; cost: number }[] {
   const raw = getSqlite()
     .prepare(
       `SELECT COALESCE(model, 'unknown') AS model,
@@ -350,6 +368,10 @@ export function getModelBreakdown(): { model: string; sessions: number; tokens: 
 }
 
 export function getOverview() {
+  return ttlMemo('getOverview', READ_TTL_MS, () => _getOverview());
+}
+
+function _getOverview() {
   const row = getSqlite()
     .prepare(
       `SELECT
@@ -393,6 +415,12 @@ export type ProjectBreakdown = {
 };
 
 export function getProjectBreakdown(days: number | null = 30, topN = 6): ProjectBreakdown[] {
+  return ttlMemo(`getProjectBreakdown:${days}:${topN}`, READ_TTL_MS, () =>
+    _getProjectBreakdown(days, topN),
+  );
+}
+
+function _getProjectBreakdown(days: number | null, topN: number): ProjectBreakdown[] {
   const since = days === null ? 0 : Date.now() - days * 86_400_000;
   return getSqlite()
     .prepare(
@@ -408,6 +436,10 @@ export function getProjectBreakdown(days: number | null = 30, topN = 6): Project
 }
 
 export function getCategoryBreakdown(days: number | null = 30): { category: string; sessions: number; tokens: number }[] {
+  return ttlMemo(`getCategoryBreakdown:${days}`, READ_TTL_MS, () => _getCategoryBreakdown(days));
+}
+
+function _getCategoryBreakdown(days: number | null): { category: string; sessions: number; tokens: number }[] {
   const since = days === null ? 0 : Date.now() - days * 86_400_000;
   const rows = getSqlite()
     .prepare(
@@ -449,6 +481,10 @@ export type RangeSummary = {
 };
 
 export function getRangeSummary(days: number | null = 30): RangeSummary {
+  return ttlMemo(`getRangeSummary:${days}`, READ_TTL_MS, () => _getRangeSummary(days));
+}
+
+function _getRangeSummary(days: number | null): RangeSummary {
   const db = getSqlite();
   const now = Date.now();
   const start = days === null ? 0 : now - days * 86_400_000;

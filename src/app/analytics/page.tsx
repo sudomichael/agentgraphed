@@ -8,6 +8,7 @@ import {
   getModelBreakdown,
   getRangeSummary,
 } from '@/lib/queries';
+import { triggerBackgroundIngest } from '@/lib/ingest/auto';
 import { fmtCost, fmtTokens } from '@/lib/format';
 import { PRICES_LAST_UPDATED } from '@/lib/pricing';
 import { parseRange, rangeDays, rangeLabel, rangeShortLabel } from '@/lib/range';
@@ -19,6 +20,7 @@ export default async function AnalyticsPage({
 }: {
   searchParams: Promise<{ range?: string }>;
 }) {
+  triggerBackgroundIngest();
   const sp = await searchParams;
   const rangeKey = parseRange(sp.range);
   const days = rangeDays(rangeKey);

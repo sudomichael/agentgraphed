@@ -1,11 +1,13 @@
 import Link from 'next/link';
 import { PageHeader } from '@/components/PageHeader';
 import { getProjects } from '@/lib/queries';
+import { triggerBackgroundIngest } from '@/lib/ingest/auto';
 import { fmtTokens, fmtCost, fmtRelative } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
 
 export default function ProjectsPage() {
+  triggerBackgroundIngest();
   const projects = getProjects();
   const totalTokens = projects.reduce((s, p) => s + p.tokens, 0);
   const totalCost = projects.reduce((s, p) => s + p.cost, 0);

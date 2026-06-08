@@ -1,6 +1,7 @@
 import { PageHeader } from '@/components/PageHeader';
 import { SessionItem } from '@/components/SessionItem';
 import { getTimeline, getProjects } from '@/lib/queries';
+import { triggerBackgroundIngest } from '@/lib/ingest/auto';
 import { fmtTokens, fmtCost } from '@/lib/format';
 
 export const dynamic = 'force-dynamic';
@@ -10,6 +11,7 @@ export default async function TimelinePage({
 }: {
   searchParams: Promise<{ project?: string; provider?: string; q?: string }>;
 }) {
+  triggerBackgroundIngest();
   const sp = await searchParams;
   const projects = getProjects();
   const groups = getTimeline({

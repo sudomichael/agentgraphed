@@ -1,6 +1,7 @@
 import { PageHeader } from '@/components/PageHeader';
 import { SessionRow } from '@/components/SessionRow';
 import { getAllSessions, getProjects } from '@/lib/queries';
+import { triggerBackgroundIngest } from '@/lib/ingest/auto';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,7 @@ export default async function SessionsPage({
 }: {
   searchParams: Promise<{ provider?: string; project?: string }>;
 }) {
+  triggerBackgroundIngest();
   const sp = await searchParams;
   const sessions = getAllSessions({ provider: sp.provider, projectId: sp.project, limit: 500 });
   const projects = getProjects();
