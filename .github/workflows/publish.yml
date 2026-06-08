@@ -3,8 +3,11 @@ name: Publish to npm
 # Triggered by pushing a tag like v0.1.2. The tag must match the version in
 # package.json — we verify that before publishing so a typo can't ship the
 # wrong version. Workflow does the same build + install verification as CI,
-# then runs `npm publish` against the public registry using a long-lived
-# automation token (NPM_TOKEN repo secret) so no interactive 2FA is needed.
+# then runs `npm publish` against the public registry. Authentication uses
+# OIDC via npm's Trusted Publishers — no NPM_TOKEN secret needed. The npm
+# CLI exchanges the GitHub Actions `id-token` for a short-lived registry
+# token at publish time, and `--provenance` attaches a sigstore attestation
+# that ties the package to this exact workflow run.
 #
 # To cut a release locally:
 #   1. Bump version in package.json (e.g. 0.1.2)
@@ -31,6 +34,10 @@ jobs:
           node-version: '22'
           cache: 'npm'
           registry-url: 'https://registry.npmjs.org'
+
+      # OIDC publishing requires npm >= 11.5.1; Node 22 ships with npm 10.x.
+      - name: Upgrade npm to a version that supports OIDC
+        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
@@ -66,9 +73,9 @@ jobs:
           kill $PID
 
       - name: Publish to npm
+        # No NODE_AUTH_TOKEN: npm uses the GitHub Actions OIDC token via the
+        # Trusted Publisher binding configured on npmjs.com.
         run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
