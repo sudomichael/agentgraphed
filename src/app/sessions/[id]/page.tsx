@@ -56,10 +56,10 @@ export default async function SessionDetail({ params }: { params: Promise<{ id: 
               cachedContext={cached?.context ?? null}
             />
             <ShareButton
-              kind="session"
-              id={id}
+              imageUrl={`/api/share/session/${id}`}
               filename={`agentgraphed-session-${id.slice(0, 8)}.png`}
-              tweetText={`${fmtTokens(tokens)} tokens · ${fmtCost(session.est_cost_usd)} · ${fmtDuration(session.duration_ms)}\n\n"${truncateForTweet(title, 140)}"\n\nTracked with AgentGraphed — local-first analytics for Claude Code & Codex.\nhttps://agentgraphed.com`}
+              shareText={`${fmtTokens(tokens)} tokens · ${fmtCost(session.est_cost_usd)} on "${truncateForTweet(title, 100)}"\n\nTracked locally with AgentGraphed\nhttps://agentgraphed.com`}
+              shareTitle={`AgentGraphed — ${title}`}
             />
           </div>
         }

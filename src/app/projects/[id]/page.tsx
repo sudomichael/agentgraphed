@@ -32,10 +32,10 @@ export default async function ProjectDetail({ params }: { params: Promise<{ id: 
               <span className="font-mono text-code-sm text-ink-mute">{project.git_remote}</span>
             )}
             <ShareButton
-              kind="project"
-              id={id}
+              imageUrl={`/api/share/project/${id}`}
               filename={`agentgraphed-project-${project.name}.png`}
-              tweetText={`${project.name}: ${project.sessions} ${project.sessions === 1 ? 'session' : 'sessions'} · ${fmtTokens(project.tokens)} tokens · ${fmtCost(project.cost)}\n\nTracked with AgentGraphed — local-first analytics for Claude Code & Codex.\nhttps://agentgraphed.com`}
+              shareText={`${fmtTokens(project.tokens)} tokens · ${fmtCost(project.cost)} on ${project.name}\n\nTracked locally with AgentGraphed\nhttps://agentgraphed.com`}
+              shareTitle={`AgentGraphed — ${project.name}`}
             />
           </div>
         }
