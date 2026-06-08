@@ -24,3 +24,9 @@ export async function clearKeyAction(which: 'anthropic' | 'openai'): Promise<voi
   if (which === 'openai') setSetting('openai_api_key', '');
   revalidatePath('/settings');
 }
+
+export async function setAutoClassifyAction(on: boolean): Promise<void> {
+  setSetting('auto_classify', on ? 'on' : 'off');
+  revalidatePath('/settings');
+  revalidatePath('/');
+}

@@ -7,6 +7,10 @@ import { CategoryBadge } from '@/components/CategoryBadge';
 import { RangePicker } from '@/components/RangePicker';
 import { FreshnessIndicator } from '@/components/FreshnessIndicator';
 import { ShareButton } from '@/components/ShareButton';
+import { ProjectFilter } from '@/components/ProjectFilter';
+import { ModelFilter } from '@/components/ModelFilter';
+import { ModelBreakdownCard } from '@/components/ModelBreakdownCard';
+import { ClassifyChip } from '@/components/ClassifyChip';
 import {
   getOverview,
   getRangeSummary,
@@ -16,9 +20,14 @@ import {
   getTodaySessions,
   getRecentSessions,
   getDaySummary,
+  getProjects,
   getSetting,
+  getUnclassifiedCount,
+  getModelBreakdown,
+  getModelFamilies,
 } from '@/lib/queries';
 import { triggerBackgroundIngest, lastIngestedAt } from '@/lib/ingest/auto';
+import { estimateClassifyCost } from '@/lib/llm/classify';
 import type { LlmProvider } from '@/lib/llm/models';
 import { fmtCost, fmtTokens, dayKey, fmtDay } from '@/lib/format';
 import { parseRange, rangeDays, rangeLabel, rangeShortLabel } from '@/lib/range';
@@ -32,16 +41,32 @@ function pctDelta(cur: number, prev: number): { text: string; positive: boolean 
   return { text: `${sign}${pct.toFixed(0)}% vs prev`, positive: pct >= 0 };
 }
 
+type Metric = 'tokens' | 'sessions' | 'cost';
+type Scale = 'lin' | 'log';
+
+function parseMetric(raw: string | undefined): Metric {
+  return raw === 'sessions' || raw === 'cost' ? raw : 'tokens';
+}
+function parseScale(raw: string | undefined): Scale | null {
+  return raw === 'lin' || raw === 'log' ? raw : null;
+}
+
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string }>;
+  searchParams: Promise<{ range?: string; metric?: string; scale?: string; project?: string; model?: string }>;
 }) {
   const sp = await searchParams;
   const rangeKey = parseRange(sp.range);
   const days = rangeDays(rangeKey);
   const shortLabel = rangeShortLabel(rangeKey);
   const fullLabel = rangeLabel(rangeKey).toLowerCase();
+  const metric = parseMetric(sp.metric);
+  const scale = parseScale(sp.scale);
+  const allProjects = getProjects();
+  const projectId = sp.project && allProjects.some((p) => p.id === sp.project) ? sp.project : null;
+  const modelFamilies = getModelFamilies();
+  const modelFamily = sp.model && modelFamilies.some((f) => f.family === sp.model) ? sp.model : null;
 
   // Kick off a background scan so new sessions land on the *next* render;
   // does NOT block this one. Debounced internally — multiple pages within 10s
@@ -49,13 +74,17 @@ export default async function DashboardPage({
   triggerBackgroundIngest();
 
   const overview = getOverview();
-  const range = getRangeSummary(days);
-  const daily = getDailySeries(days);
-  const projects = getProjectBreakdown(days, 8);
-  const categories = getCategoryBreakdown(days);
-  const todaySessions = getTodaySessions();
-  const recent = getRecentSessions(8);
+  const range = getRangeSummary(days, projectId, modelFamily);
+  const daily = getDailySeries(days, projectId, modelFamily);
+  const projectBreakdown = getProjectBreakdown(days, 8, modelFamily);
+  const categories = getCategoryBreakdown(days, projectId, modelFamily);
+  const todaySessions = getTodaySessions(projectId, modelFamily);
+  const recent = getRecentSessions(8, projectId, modelFamily);
   const daySummary = getDaySummary(dayKey(Date.now()));
+  // Model breakdown is intentionally not filtered by model — it'd always show
+  // one bar. We still respect the day window + project filter so the card
+  // reflects "what I'm looking at."
+  const modelRows = !modelFamily ? getModelBreakdown(days, projectId) : [];
 
   // Provider-aware messaging for the Daily Summary card. The summary itself
   // is still always the heuristic (the LLM-summary generator isn't wired to
@@ -66,6 +95,16 @@ export default async function DashboardPage({
     ? Boolean(getSetting('anthropic_api_key'))
     : Boolean(getSetting('openai_api_key'));
   const providerLabel = llmProvider === 'openai' ? 'OpenAI' : 'Anthropic';
+
+  // Surface a "N unclassified · classify" chip in the header when auto is off,
+  // the user has a key, and there's actually something to classify. The chip
+  // shows the estimated cost so the click never feels surprising.
+  // Default-on: chip only appears when the user has explicitly opted out.
+  const autoClassify = getSetting('auto_classify') !== 'off';
+  const unclassifiedCount = !autoClassify && hasLlmKey ? getUnclassifiedCount() : 0;
+  const classifyEstimate = unclassifiedCount > 0
+    ? await estimateClassifyCost(unclassifiedCount).catch(() => null)
+    : null;
 
   const empty = overview.sessions === 0;
 
@@ -81,14 +120,26 @@ export default async function DashboardPage({
       <PageHeader
         title="Dashboard"
         subtitle={fmtDay(Date.now())}
+        titleAdornment={
+          <div className="flex items-center gap-2">
+            <ProjectFilter projects={allProjects.map((p) => ({ id: p.id, name: p.name }))} current={projectId} />
+            <ModelFilter families={modelFamilies} current={modelFamily} />
+          </div>
+        }
         right={
           <div className="flex items-center gap-4">
-            <RangePicker current={rangeKey} />
-            <div className="text-[11px] text-ink-mute font-mono">
-              {overview.sessions.toLocaleString()} sessions all-time · {fmtTokens(overview.tokens)} tokens
+            <div className="flex items-center gap-2.5">
+              <RangePicker current={rangeKey} />
+              <span className="w-px h-3.5 bg-surface-3" />
+              <FreshnessIndicator lastIngestedAt={lastIngestedAt()} />
+              {unclassifiedCount > 0 && classifyEstimate && (
+                <>
+                  <span className="w-px h-3.5 bg-surface-3" />
+                  <ClassifyChip count={unclassifiedCount} estimatedUsd={classifyEstimate.totalUsd} />
+                </>
+              )}
             </div>
-            <FreshnessIndicator lastIngestedAt={lastIngestedAt()} />
-            <ShareButton imageUrl={`/api/share/dashboard?days=${days === null ? 'all' : days}`} />
+            <ShareButton imageUrl={`/api/share/dashboard?days=${days === null ? 'all' : days}&metric=${metric}${scale ? `&scale=${scale}` : ''}${projectId ? `&project=${projectId}` : ''}${modelFamily ? `&model=${encodeURIComponent(modelFamily)}` : ''}`} />
           </div>
         }
       />
@@ -119,7 +170,7 @@ export default async function DashboardPage({
           />
         </div>
 
-        <UsageChartCard data={daily} label={fullLabel} />
+        <UsageChartCard data={daily} label={fullLabel} metric={metric} scale={scale} />
 
         <div className="grid grid-cols-3 gap-4">
           <div className="card col-span-2">
@@ -138,19 +189,24 @@ export default async function DashboardPage({
             </div>
           </div>
 
-          <div className="card h-fit">
-            <div className="card-header">Daily Summary</div>
-            <div className="p-4 text-body-md text-ink-dim leading-relaxed">
-              {daySummary || heuristicSummary(todaySessions)}
-            </div>
-            {!daySummary && !hasLlmKey && (
-              <div className="px-4 pb-4 text-[11px] text-ink-mute">
-                Add an {providerLabel} key in{' '}
-                <Link href="/settings" className="text-primary hover:underline">
-                  Settings
-                </Link>{' '}
-                to enable AI-written summaries.
+          <div className="space-y-4">
+            <div className="card h-fit">
+              <div className="card-header">Daily Summary</div>
+              <div className="p-4 text-body-md text-ink-dim leading-relaxed">
+                {daySummary || heuristicSummary(todaySessions)}
               </div>
+              {!daySummary && !hasLlmKey && (
+                <div className="px-4 pb-4 text-[11px] text-ink-mute">
+                  Add an {providerLabel} key in{' '}
+                  <Link href="/settings" className="text-primary hover:underline">
+                    Settings
+                  </Link>{' '}
+                  to enable AI-written summaries.
+                </div>
+              )}
+            </div>
+            {!modelFamily && modelRows.length > 0 && (
+              <ModelBreakdownCard rows={modelRows} label={fullLabel} />
             )}
           </div>
         </div>
@@ -164,8 +220,8 @@ export default async function DashboardPage({
               </Link>
             </div>
             <div className="p-4 space-y-2.5">
-              {projects.map((p) => {
-                const max = Math.max(...projects.map((x) => x.tokens), 1);
+              {projectBreakdown.map((p) => {
+                const max = Math.max(...projectBreakdown.map((x) => x.tokens), 1);
                 const pct = (p.tokens / max) * 100;
                 return (
                   <Link
@@ -185,7 +241,7 @@ export default async function DashboardPage({
                   </Link>
                 );
               })}
-              {projects.length === 0 && (
+              {projectBreakdown.length === 0 && (
                 <div className="text-body-sm text-ink-mute text-center py-4">
                   No project activity in the last 30 days.
                 </div>

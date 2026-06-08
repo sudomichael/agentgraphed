@@ -4,10 +4,12 @@ import { PageHeader } from '@/components/PageHeader';
 import { MetricCard } from '@/components/MetricCard';
 import { CategoryBadge } from '@/components/CategoryBadge';
 import { SessionActions } from '@/components/SessionActions';
+import { ResumePanel } from '@/components/ResumePanel';
 import { ShareButton } from '@/components/ShareButton';
-import { getSession, getSessionMessages, sessionCategories } from '@/lib/queries';
+import { getSession, getSessionMessages, sessionCategories, getSessionModelMix } from '@/lib/queries';
 import { fmtCost, fmtDuration, fmtTokens, fmtClock } from '@/lib/format';
 import { displayTitle } from '@/lib/sessionDisplay';
+import { displayPath } from '@/lib/display-path';
 import { getLlmConfig } from '@/lib/llm/client';
 import { getSessionContext } from '@/lib/llm/context';
 
@@ -18,6 +20,7 @@ export default async function SessionDetail({ params }: { params: Promise<{ id: 
   const session = getSession(id);
   if (!session) notFound();
   const messages = getSessionMessages(id);
+  const modelMix = getSessionModelMix(id);
 
   const title = displayTitle(session);
   const tokens =
@@ -42,11 +45,9 @@ export default async function SessionDetail({ params }: { params: Promise<{ id: 
           </span>
         }
         right={
-          <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
             <SessionActions
               sessionId={id}
-              provider={session.provider}
-              cwd={session.cwd}
               hasLlmKey={hasLlmKey}
               cachedContext={cached?.context ?? null}
             />
@@ -56,6 +57,8 @@ export default async function SessionDetail({ params }: { params: Promise<{ id: 
       />
 
       <div className="p-7 space-y-7">
+        <ResumePanel provider={session.provider} cwd={displayPath(session.cwd)} sessionId={id} />
+
         <div className="grid grid-cols-5 gap-4">
           <MetricCard label="Tokens" value={fmtTokens(tokens)} />
           <MetricCard label="Input" value={fmtTokens(session.input_tokens)} />
@@ -109,12 +112,40 @@ export default async function SessionDetail({ params }: { params: Promise<{ id: 
           </div>
         </div>
 
+        {modelMix.length > 0 && (
+          <div className="card">
+            <div className="card-header flex items-center justify-between">
+              <span>Models in this session</span>
+              <span className="normal-case tracking-normal font-normal text-ink-mute text-[11px]">assistant messages</span>
+            </div>
+            <div className="p-4 space-y-2">
+              {modelMix.map((m) => {
+                const max = Math.max(...modelMix.map((x) => x.messages), 1);
+                const pct = (m.messages / max) * 100;
+                return (
+                  <div key={m.family} className="space-y-1">
+                    <div className="flex items-baseline justify-between text-body-sm">
+                      <span className="text-ink">{m.family}</span>
+                      <span className="font-mono text-ink-mute tabular text-code-sm">
+                        {m.messages} {m.messages === 1 ? 'message' : 'messages'}
+                      </span>
+                    </div>
+                    <div className="h-1 bg-surface-2 rounded-full overflow-hidden">
+                      <div className="h-full bg-primary/60" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="card">
           <div className="card-header">Session Metadata</div>
           <div className="p-4 grid grid-cols-2 gap-3 font-mono text-code-sm">
             <Row k="Session ID" v={session.id} />
             <Row k="Provider" v={session.provider} />
-            <Row k="cwd" v={session.cwd} />
+            <Row k="cwd" v={displayPath(session.cwd)} />
             <Row k="git branch" v={session.git_branch || '—'} />
           </div>
         </div>

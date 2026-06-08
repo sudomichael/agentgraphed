@@ -101,6 +101,32 @@ body {
   background: #00dce5;
   border-color: transparent;
 }
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  background: rgba(0, 245, 255, 0.08);
+  border: 1px solid rgba(0, 245, 255, 0.35);
+  color: #00f5ff;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+.btn-icon:hover {
+  background: rgba(0, 245, 255, 0.16);
+  border-color: #00f5ff;
+  box-shadow: 0 0 0 3px rgba(0, 245, 255, 0.12);
+  transform: translateY(-1px);
+}
+.btn-icon:active {
+  transform: translateY(0);
+}
+.btn-icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 .tabular {
   font-variant-numeric: tabular-nums;

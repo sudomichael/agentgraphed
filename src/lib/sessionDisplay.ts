@@ -21,12 +21,42 @@ export function sessionCategories(
 export function displayTitle(s: Pick<SessionRow, 'summary' | 'heuristic_title' | 'first_prompt'>): string {
   if (s.summary) return s.summary.split('\n')[0].trim();
   if (s.heuristic_title) return s.heuristic_title;
-  if (s.first_prompt) {
-    const firstLine = s.first_prompt.trim().split('\n').find((l) => l.trim().length > 0) ?? '';
-    const cleaned = firstLine.replace(/\s+/g, ' ').trim();
-    if (cleaned.length <= 100) return cleaned;
-    const cut = cleaned.lastIndexOf(' ', 100);
-    return (cut > 60 ? cleaned.slice(0, cut) : cleaned.slice(0, 100)) + '…';
-  }
+  if (s.first_prompt) return titleFromPrompt(s.first_prompt);
   return '(untitled session)';
+}
+
+// Best-effort cleanup of a raw user prompt so it reads as a title in lists.
+// Not a replacement for LLM classification — just a friendlier fallback.
+export function titleFromPrompt(prompt: string): string {
+  let text = prompt.trim();
+
+  // Strip Claude/Codex command markers and tags like <command-name>, <local-command-stdout>, etc.
+  text = text.replace(/<[^>]+>/g, ' ');
+  // Drop leading slash commands ("/compact", "/init", "/help foo") — usually meta.
+  text = text.replace(/^\/[a-z][a-z0-9-]*(\s|$)/i, '');
+  // Collapse code-fence and inline-code delimiters; keep their contents.
+  text = text.replace(/```[a-z]*\n?/gi, ' ').replace(/```/g, ' ').replace(/`/g, '');
+  // Strip Markdown link URL parts: "[label](url)" → "label".
+  text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+  // Drop standalone URLs.
+  text = text.replace(/https?:\/\/\S+/g, '');
+  // Drop absolute file paths that aren't useful as title material.
+  text = text.replace(/(^|\s)(\/|~\/)[\w./~-]+/g, ' ');
+  // Collapse whitespace.
+  text = text.replace(/\s+/g, ' ').trim();
+
+  // Use the first sentence-ish chunk if it's reasonably short.
+  const sentenceEnd = text.search(/[.!?](\s|$)/);
+  if (sentenceEnd > 8 && sentenceEnd < 90) {
+    text = text.slice(0, sentenceEnd).trim();
+  }
+
+  if (text.length === 0) return '(untitled session)';
+
+  // Capitalize first letter for a title-ish feel without forcing Title Case.
+  text = text.charAt(0).toUpperCase() + text.slice(1);
+
+  if (text.length <= 90) return text;
+  const cut = text.lastIndexOf(' ', 90);
+  return (cut > 50 ? text.slice(0, cut) : text.slice(0, 90)) + '…';
 }

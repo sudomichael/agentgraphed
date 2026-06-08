@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { UsageChart } from './SparkChart';
 
 type Point = { day: string; sessions: number; tokens: number; cost: number };
@@ -18,11 +19,31 @@ function suggestLog(data: Point[], metric: Metric): boolean {
   return peak / Math.max(median, 1) > 10;
 }
 
-export function UsageChartCard({ data, label = 'last 30 days' }: { data: Point[]; label?: string }) {
-  const [metric, setMetric] = useState<Metric>('tokens');
+export function UsageChartCard({
+  data,
+  label = 'last 30 days',
+  metric,
+  scale,
+}: {
+  data: Point[];
+  label?: string;
+  metric: Metric;
+  scale: Scale | null;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const sp = useSearchParams();
   const recommended = useMemo<Scale>(() => (suggestLog(data, metric) ? 'log' : 'lin'), [data, metric]);
-  const [scale, setScale] = useState<Scale | null>(null);
   const activeScale: Scale = scale ?? recommended;
+
+  const setParam = (key: 'metric' | 'scale', value: string | null, defaultValue: string) => {
+    const params = new URLSearchParams(sp.toString());
+    if (value === null || value === defaultValue) params.delete(key);
+    else params.set(key, value);
+    const qs = params.toString();
+    router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
   const tabs: { id: Metric; label: string }[] = [
     { id: 'tokens', label: 'Tokens' },
     { id: 'sessions', label: 'Sessions' },
@@ -38,7 +59,7 @@ export function UsageChartCard({ data, label = 'last 30 days' }: { data: Point[]
             {tabs.map((t) => (
               <button
                 key={t.id}
-                onClick={() => setMetric(t.id)}
+                onClick={() => setParam('metric', t.id, 'tokens')}
                 className={`px-2 py-0.5 text-[11px] rounded transition-colors font-mono ${
                   metric === t.id ? 'bg-primary/15 text-primary' : 'text-ink-mute hover:text-ink-dim'
                 }`}
@@ -52,7 +73,7 @@ export function UsageChartCard({ data, label = 'last 30 days' }: { data: Point[]
             {(['lin', 'log'] as Scale[]).map((s) => (
               <button
                 key={s}
-                onClick={() => setScale(s)}
+                onClick={() => setParam('scale', s, recommended)}
                 className={`px-1.5 py-0.5 text-[10px] rounded transition-colors font-mono uppercase relative ${
                   activeScale === s ? 'bg-secondary/15 text-secondary' : 'text-ink-mute hover:text-ink-dim'
                 }`}

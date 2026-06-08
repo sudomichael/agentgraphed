@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { saveLlmAction, clearKeyAction } from '@/app/settings/llm-actions';
+import { saveLlmAction, clearKeyAction, setAutoClassifyAction } from '@/app/settings/llm-actions';
 import { classifyAction, estimateAction } from '@/app/settings/classify-actions';
 import { modelsForProvider, defaultModel, type LlmProvider } from '@/lib/llm/models';
 
@@ -13,6 +13,7 @@ type Props = {
   summarizerModel: string;
   classified: number;
   total: number;
+  autoClassify: boolean;
 };
 
 const mask = (k: string) => (k ? k.slice(0, 8) + '…' + k.slice(-4) : '');
@@ -25,10 +26,12 @@ export function LlmSection({
   summarizerModel,
   classified,
   total,
+  autoClassify: initialAutoClassify,
 }: Props) {
   const [provider, setProvider] = useState<LlmProvider>(initialProvider);
   const [model, setModel] = useState<string>(initialModel);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [autoClassify, setAutoClassify] = useState(initialAutoClassify);
   const [classifyState, setClassifyState] = useState<
     | { kind: 'idle' }
     | { kind: 'estimate'; totalUsd: number; rowCount: number; modelLabel: string; scope: 'uncategorized' | 'all' }
@@ -68,6 +71,13 @@ export function LlmSection({
       const r = await estimateAction(scope);
       if (!r.ok) setClassifyState({ kind: 'error', message: r.error });
       else setClassifyState({ kind: 'estimate', totalUsd: r.totalUsd, rowCount: r.rowCount, modelLabel: r.modelLabel, scope });
+    });
+  };
+
+  const onToggleAuto = (next: boolean) => {
+    setAutoClassify(next);
+    startTransition(async () => {
+      await setAutoClassifyAction(next);
     });
   };
 
@@ -183,6 +193,22 @@ export function LlmSection({
       </form>
 
       <div className="px-5 pb-5 border-t border-surface-2 pt-4 space-y-3">
+        <label className={`flex items-start gap-3 text-body-sm ${hasKey ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed'}`}>
+          <input
+            type="checkbox"
+            checked={autoClassify}
+            onChange={(e) => onToggleAuto(e.target.checked)}
+            disabled={!hasKey || pending}
+            className="mt-1 accent-primary"
+          />
+          <span className="text-ink-dim">
+            <span className="text-ink font-medium">Automatically classify new sessions</span>
+            <span className="block text-ink-mute text-[11px] mt-0.5">
+              When a background scan finds unclassified sessions, batch them through the classifier. Costs ~$0.0001 per session.
+            </span>
+          </span>
+        </label>
+
         <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"

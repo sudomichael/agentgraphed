@@ -3,8 +3,10 @@ import { PageHeader } from '@/components/PageHeader';
 import { MetricCard } from '@/components/MetricCard';
 import { SessionItem } from '@/components/SessionItem';
 import { ShareButton } from '@/components/ShareButton';
-import { getProject, getSessionsForProject } from '@/lib/queries';
+import { ModelBreakdownCard } from '@/components/ModelBreakdownCard';
+import { getProject, getSessionsForProject, getModelBreakdown } from '@/lib/queries';
 import { fmtTokens, fmtCost, fmtRelative } from '@/lib/format';
+import { displayPath } from '@/lib/display-path';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,19 +15,13 @@ export default async function ProjectDetail({ params }: { params: Promise<{ id: 
   const project = getProject(id);
   if (!project) notFound();
   const sessions = getSessionsForProject(id, 200);
-
-  const modelCounts = new Map<string, number>();
-  for (const s of sessions) {
-    const k = s.model || 'unknown';
-    modelCounts.set(k, (modelCounts.get(k) || 0) + 1);
-  }
-  const models = [...modelCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const modelRows = getModelBreakdown(null, id);
 
   return (
     <div>
       <PageHeader
         title={project.name}
-        subtitle={project.root_path}
+        subtitle={displayPath(project.root_path)}
         right={
           <div className="flex items-center gap-3">
             {project.git_remote && (
@@ -56,16 +52,8 @@ export default async function ProjectDetail({ params }: { params: Promise<{ id: 
               )}
             </div>
           </div>
-          <div className="card h-fit">
-            <div className="card-header">Models Used</div>
-            <div className="p-4 space-y-2">
-              {models.map(([m, n]) => (
-                <div key={m} className="flex justify-between text-body-sm">
-                  <span className="font-mono text-code-sm truncate pr-2">{m}</span>
-                  <span className="font-mono tabular text-ink">{n}</span>
-                </div>
-              ))}
-            </div>
+          <div className="h-fit">
+            <ModelBreakdownCard rows={modelRows} label="all time" />
           </div>
         </div>
       </div>

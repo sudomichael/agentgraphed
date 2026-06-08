@@ -2,12 +2,11 @@
 
 import { useState } from 'react';
 
-// Share-stats button. Single job: generate the stat-card PNG and write it
-// to the OS clipboard as an image. The user pastes it wherever they want.
-//
-// Three states: idle ("Share stats") -> generating ("Generating image") ->
-// done ("Image copied to clipboard"). No share sheet, no tweet intent, no
-// text wrangling.
+// Icon-only share button — modeled after iOS / Twitter / GitHub / Linear, all
+// of which use a share glyph rather than the words "Share stats." Single job:
+// fetch the share-image PNG and copy it to the OS clipboard. On older browsers
+// without ClipboardItem image support we fall back to a download so the user
+// is never stuck. The icon swaps to a checkmark briefly on success.
 
 type Props = {
   imageUrl: string;
@@ -27,22 +26,14 @@ export function ShareButton({ imageUrl, className }: Props) {
       const resp = await fetch(imageUrl);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const blob = await resp.blob();
-
-      // ClipboardItem expects a Promise<Blob> or Blob keyed by MIME type.
-      // Browsers that support image-in-clipboard: Chrome, Edge, Safari 13.4+,
-      // Firefox 127+. Older Firefox throws — we catch and fall back to
-      // downloading the file instead so the user is never stuck.
       if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
         throw new Error('clipboard image unsupported');
       }
       const item = new ClipboardItem({ 'image/png': blob });
       await navigator.clipboard.write([item]);
-
       setStatus('done');
       setTimeout(() => setStatus('idle'), 2400);
     } catch (e) {
-      // Fallback for browsers without clipboard.write image support: trigger
-      // a download. Honest UX, not pretty, but not a dead end.
       try {
         const resp = await fetch(imageUrl);
         const blob = await resp.blob();
@@ -54,7 +45,7 @@ export function ShareButton({ imageUrl, className }: Props) {
         a.click();
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(objectUrl), 5_000);
-        setErrMsg('Saved to Downloads (your browser doesn\'t support image copy)');
+        setErrMsg('Saved to Downloads (clipboard image unsupported)');
         setStatus('err');
         setTimeout(() => setStatus('idle'), 4_000);
       } catch (e2) {
@@ -65,20 +56,48 @@ export function ShareButton({ imageUrl, className }: Props) {
     }
   };
 
-  const label =
+  const title =
     status === 'busy' ? 'Generating image…' :
-    status === 'done' ? '✓ Image copied to clipboard' :
+    status === 'done' ? 'Image copied to clipboard' :
     status === 'err' ? (errMsg ?? 'Try again') :
-    'Share stats';
+    'Copy share image to clipboard';
 
   return (
     <button
       onClick={onClick}
       disabled={status === 'busy'}
-      className={`btn btn-primary disabled:opacity-60 disabled:cursor-not-allowed ${className ?? ''}`}
-      title="Generate a share image and copy it to your clipboard"
+      aria-label="Share"
+      title={title}
+      className={`btn-icon ${status === 'done' ? 'text-secondary' : ''} ${className ?? ''}`}
     >
-      {label}
+      {status === 'busy' ? <Spinner /> : status === 'done' ? <CheckIcon /> : <ShareIcon />}
     </button>
+  );
+}
+
+function ShareIcon() {
+  // Classic share glyph: arrow up out of tray. Recognizable across iOS/macOS.
+  return (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8" />
+      <polyline points="16 6 12 2 8 6" />
+      <line x1="12" y1="2" x2="12" y2="15" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin">
+      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+    </svg>
   );
 }

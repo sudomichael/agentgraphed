@@ -14,8 +14,11 @@
 import { runIngest } from './run';
 import { getSetting, setSetting } from '../queries';
 import { clearMemo } from '../cache';
+import { classifyBatch, getUnclassifiedRows } from '../llm/classify';
+import { getLlmConfig } from '../llm/client';
 
 const DEBOUNCE_MS = 10_000;
+const AUTO_CLASSIFY_THRESHOLD = 5;
 let inFlight: Promise<void> | null = null;
 
 export function triggerBackgroundIngest(): void {
@@ -39,6 +42,7 @@ export function triggerBackgroundIngest(): void {
       if (result.claude.filesIngested > 0 || result.codex.filesIngested > 0) {
         clearMemo();
       }
+      await maybeAutoClassify();
     } catch {
       // Best-effort; never block the user on a transient failure.
     } finally {
@@ -46,6 +50,24 @@ export function triggerBackgroundIngest(): void {
     }
   })();
   // Intentionally NOT awaited.
+}
+
+// If the user opted into auto-classify AND has a provider key set AND there
+// are enough unclassified rows to make a batch worthwhile, run the classifier.
+// Silent no-op on any failure — never crashes the user's page.
+async function maybeAutoClassify(): Promise<void> {
+  try {
+    // Default-on: only 'off' opts out. Anything else (unset, 'on') enables.
+    if (getSetting('auto_classify') === 'off') return;
+    if (!getLlmConfig()) return;
+    const rows = getUnclassifiedRows();
+    if (rows.length < AUTO_CLASSIFY_THRESHOLD) return;
+    const result = await classifyBatch({ rows });
+    if (result.classified > 0) clearMemo();
+  } catch {
+    // Auto-classify is best-effort; failures here are silent and the user
+    // can still trigger classification manually from Settings.
+  }
 }
 
 // For pages that want to know how stale the data might be (e.g. for a small

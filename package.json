@@ -1,6 +1,6 @@
 {
   "name": "agentgraphed",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": false,
   "description": "Claude Code usage monitor — local-first analytics dashboard for Claude Code & Codex CLI sessions. See every session, every project, every dollar. No login, no cloud.",
   "keywords": [
@@ -28,6 +28,7 @@
   },
   "scripts": {
     "dev": "node scripts/fetch-pricing.mjs && next dev -p 3737",
+    "demo": "AGENTGRAPHED_DEMO_HOME=/Users/dev node scripts/fetch-pricing.mjs && AGENTGRAPHED_DEMO_HOME=/Users/dev next dev -p 3737",
     "build": "node scripts/fetch-pricing.mjs && next build && node scripts/copy-standalone-assets.mjs",
     "prepack": "npm run build",
     "start": "node .next/standalone/server.js",

@@ -1,43 +1,25 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import Link from 'next/link';
 import { generateContextAction } from '@/app/sessions/[id]/actions';
 
 type Props = {
   sessionId: string;
-  provider: 'claude' | 'codex' | string;
-  cwd: string;
   hasLlmKey: boolean;
   cachedContext: string | null;
 };
 
-function resumeCommand(provider: string, cwd: string, id: string): string {
-  const cdPart = `cd "${cwd}"`;
-  if (provider === 'claude') return `${cdPart} && claude --resume ${id}`;
-  if (provider === 'codex') return `${cdPart} && codex resume ${id}`;
-  return cdPart;
-}
-
-export function SessionActions({ sessionId, provider, cwd, hasLlmKey, cachedContext }: Props) {
-  const [resumeCopied, setResumeCopied] = useState(false);
+export function SessionActions({ sessionId, hasLlmKey, cachedContext }: Props) {
   const [context, setContext] = useState<string | null>(cachedContext);
   const [contextCopied, setContextCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cost, setCost] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const cmd = resumeCommand(provider, cwd, sessionId);
-
-  const copyResume = async () => {
-    await navigator.clipboard.writeText(cmd);
-    setResumeCopied(true);
-    setTimeout(() => setResumeCopied(false), 1800);
-  };
-
   const onContext = () => {
     setError(null);
     startTransition(async () => {
-      // If we already have it, just copy.
       if (context) {
         await navigator.clipboard.writeText(context);
         setContextCopied(true);
@@ -58,32 +40,24 @@ export function SessionActions({ sessionId, provider, cwd, hasLlmKey, cachedCont
   };
 
   return (
-    <div className="flex flex-col items-end gap-1.5">
-      <div className="flex items-center gap-2">
-        <button
-          onClick={copyResume}
-          className="btn"
-          title={cmd}
-        >
-          {resumeCopied ? '✓ Copied' : '⟲ Resume session'}
-        </button>
-        <button
-          onClick={onContext}
-          disabled={!hasLlmKey || pending}
-          title={hasLlmKey ? 'Generate a short primer for a fresh chat' : 'Add an API key in Settings to enable'}
-          className={`btn ${hasLlmKey ? 'btn-primary' : ''} disabled:opacity-50 disabled:cursor-not-allowed`}
-        >
-          {pending ? '… generating' : contextCopied ? '✓ Copied' : context ? '⎘ Copy context' : '✶ Generate & copy context'}
-        </button>
-      </div>
-      {error && <div className="text-body-sm text-error">{error}</div>}
-      {cost !== null && cost > 0 && (
-        <div className="text-[10px] font-mono text-ink-mute">cost: ${cost.toFixed(4)}</div>
-      )}
-      {!hasLlmKey && (
-        <div className="text-[11px] text-ink-mute">
-          “Copy context” needs an API key —{' '}
-          <a href="/settings" className="text-primary hover:underline">add one in Settings</a>
+    <div className="flex items-center gap-2 relative">
+      <button
+        onClick={onContext}
+        disabled={!hasLlmKey || pending}
+        title={hasLlmKey ? 'Summarize this session so you can paste it into a fresh chat' : 'Add an API key in Settings to enable'}
+        className={`btn ${hasLlmKey ? 'btn-primary' : ''} disabled:opacity-50 disabled:cursor-not-allowed`}
+      >
+        {pending ? '… summarizing' : contextCopied ? '✓ Copied' : context ? 'Copy summary' : 'Summarize for new chat'}
+      </button>
+      {(error || (cost !== null && cost > 0) || !hasLlmKey) && (
+        <div className="absolute top-full right-0 mt-2 text-[11px] text-ink-mute flex items-center gap-2 whitespace-nowrap">
+          {error && <span className="text-error">{error}</span>}
+          {cost !== null && cost > 0 && <span className="font-mono">cost ${cost.toFixed(4)}</span>}
+          {!hasLlmKey && (
+            <span>
+              summary needs <Link href="/settings" className="text-primary hover:underline">an API key</Link>
+            </span>
+          )}
         </div>
       )}
     </div>

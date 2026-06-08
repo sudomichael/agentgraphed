@@ -50,6 +50,11 @@ function dotColor(state: State): string {
 
 function fmtRelative(ts: number): string {
   const ms = ts - Date.now();
+  // OpenAI's per-minute window resets continuously — by the time we render,
+  // the reset header has often already elapsed. "resetting" reads as an
+  // error state, but it just means the window is rolling. Treat anything
+  // within the past 2 minutes as effectively "<1m".
+  if (ms <= 0 && ms > -120_000) return '<1m';
   if (ms <= 0) return 'resetting';
   const totalMin = Math.round(ms / 60_000);
   if (totalMin < 1) return '<1m';

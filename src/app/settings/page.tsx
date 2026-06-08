@@ -34,6 +34,9 @@ export default function SettingsPage() {
   const oaiKey = getSetting('openai_api_key') || '';
   const classifierModel = getSetting('classifier_model') || defaultModel(provider);
   const summarizerModel = getSetting('summarizer_model') || defaultModel(provider);
+  // Default-on. The setting only stores 'off' when the user explicitly
+  // opts out — any other state (unset, 'on', anything else) means auto.
+  const autoClassify = getSetting('auto_classify') !== 'off';
 
   const defaultClaude = join(homedir(), '.claude', 'projects');
   const defaultCodex = join(homedir(), '.codex', 'sessions');
@@ -61,6 +64,7 @@ export default function SettingsPage() {
           summarizerModel={summarizerModel}
           classified={stats.classified}
           total={stats.total}
+          autoClassify={autoClassify}
         />
 
         <div className="card">

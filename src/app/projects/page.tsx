@@ -3,6 +3,7 @@ import { PageHeader } from '@/components/PageHeader';
 import { getProjects } from '@/lib/queries';
 import { triggerBackgroundIngest } from '@/lib/ingest/auto';
 import { fmtTokens, fmtCost, fmtRelative } from '@/lib/format';
+import { displayPath } from '@/lib/display-path';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,7 +49,7 @@ export default function ProjectsPage() {
                         {p.name}
                       </Link>
                       <div className="font-mono text-code-sm text-ink-mute truncate max-w-[420px]">
-                        {p.root_path}
+                        {displayPath(p.root_path)}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-ink-dim font-mono text-code-sm">

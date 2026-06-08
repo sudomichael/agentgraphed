@@ -4,6 +4,29 @@ All notable changes to this project will be documented here.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] — 2026-06-08
+
+### Added
+- **Project filter on the dashboard.** New dropdown next to the title (`?project=<id>`) refilters every dashboard widget — Range Summary, Usage chart, Today's Activity, Top Projects, Work Type, Daily Summary, share image. "All projects" by default.
+- **Model filter on the dashboard.** Second dropdown next to the project filter (`?model=<family>`) filters by **model family** (rolled up: `claude-opus-4-7` + `claude-opus-4-6` → "Claude Opus 4"). Threads through the same widgets as the project filter.
+- **By Model breakdown card** on the dashboard (under Daily Summary), on project detail pages, and on session detail pages when a session bounces between models. Sessions × tokens × cost per family, ranked by cost.
+- **Resume panel on session detail.** Replaces the cryptic "Resume → ✓ Copied" button with a visible command preview (`cd "<cwd>" && claude --resume <id>`) in a mono code chip with a Copy button on the right. GitHub-clone-URL pattern — what gets copied is the thing you're looking at.
+- **Auto-classify new sessions** (default on, opt-out in Settings). Background ingest now batches unclassified sessions through the LLM classifier when ≥5 are pending, so titles and categories appear without a manual trigger.
+- **"N unclassified · classify" chip** on the dashboard header — shown only when auto-classify is off and there's a backlog. Two-step confirm with the dollar estimate so the click never feels surprising.
+
+### Changed
+- **Share image is now a graph.** Dropped the "Top projects" + "Mostly" text rows. The share PNG now renders the dashboard's actual usage chart as an SVG area chart, respecting the current range, metric (tokens/sessions/cost), scale (lin/log), and project filter. The headline metric card matching the active metric gets the accent color.
+- **Usage chart toggles are URL-driven.** Metric (`?metric=`) and scale (`?scale=`) now live in the URL, so dashboard links carry the view and the share image always matches what you're looking at.
+- **Share button is icon-only.** Dropped "Share stats" copy in favor of the system share glyph (matches iOS/macOS/GitHub/Linear convention). Cyan-tinted button with a hover glow and a brief checkmark on success.
+- **Session detail header redesigned.** Title is now the AI-derived session title (not the raw cwd path); buttons sit in a single row; helper text moves below as a tooltip-style line. "Generate context" relabeled to **"Summarize for new chat"** → **"Copy summary"**.
+- **Freshness pill is rock-steady.** Fixed-width slot + zero-padded tick text (`04s` / `15s` / `03m`) — no horizontal shift on hover, no oscillation. Refresh icon + label on hover make it an obvious button.
+- **Project filter sits with the title**, not the action bar. Treated as "what you're viewing," coupled with Dashboard + date.
+- **Heuristic session titles are cleaner.** Strips `<command-name>` tags, leading slash commands, URLs, absolute paths, code-fence noise; trims to a sentence boundary. Unclassified rows in the timeline no longer leak command markers or path strings.
+- **Codex quota reset label.** No longer says "resetting" for the per-minute window that's constantly rolling — shows `<1m` instead.
+
+### Fixed
+- Project filter, model filter, range, freshness, and share button now share one tight cluster with subtle dividers — no more floating-island layout in the dashboard header.
+
 ## [0.2.2] — 2026-06-07
 
 ### Changed

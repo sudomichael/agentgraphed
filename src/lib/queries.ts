@@ -55,14 +55,17 @@ export function todayBounds(): { start: number; end: number } {
 
 // "Today" = any session that was active today (started today OR ended today OR spans today).
 // Translates to: started_at < end_of_day AND ended_at >= start_of_day.
-export function getTodaySessions(): SessionRow[] {
+export function getTodaySessions(projectId?: string | null, modelFamily?: string | null): SessionRow[] {
   const { start, end } = todayBounds();
+  const projClause = projectId ? ' AND s.project_id = ?' : '';
+  const projParam: unknown[] = projectId ? [projectId] : [];
+  const mc = modelClause(modelFamily ?? null, 's');
   return getSqlite()
     .prepare(
       `SELECT ${SESSION_FIELDS} FROM sessions s JOIN projects p ON p.id = s.project_id
-       WHERE s.started_at < ? AND s.ended_at >= ? ORDER BY s.started_at DESC`,
+       WHERE s.started_at < ? AND s.ended_at >= ?${projClause}${mc.sql} ORDER BY s.started_at DESC`,
     )
-    .all(end, start) as SessionRow[];
+    .all(end, start, ...projParam, ...mc.params) as SessionRow[];
 }
 
 export function getTodaySummary() {
@@ -241,6 +244,29 @@ export function getSession(id: string): SessionRow | null {
   );
 }
 
+// Per-session assistant-message counts by model family. Useful when Claude
+// Code or Codex bounces between models mid-session (e.g. sub-agents) — surfaces
+// otherwise-invisible model mix. Returns [] if every message used the same
+// model or none have a model recorded.
+export function getSessionModelMix(sessionId: string): { family: string; messages: number }[] {
+  const rows = getSqlite()
+    .prepare(
+      `SELECT COALESCE(model, '') AS model, COUNT(*) AS n
+       FROM messages WHERE session_id = ? AND role = 'assistant' GROUP BY model`,
+    )
+    .all(sessionId) as { model: string; n: number }[];
+  const families = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.model) continue;
+    const family = normalizeModelName(r.model);
+    families.set(family, (families.get(family) || 0) + r.n);
+  }
+  if (families.size <= 1) return [];
+  return [...families.entries()]
+    .map(([family, messages]) => ({ family, messages }))
+    .sort((a, b) => b.messages - a.messages);
+}
+
 export function getSessionMessages(sessionId: string) {
   return getSqlite()
     .prepare(
@@ -272,16 +298,29 @@ export function getAllSessions(opts: {
 
 export type DailyPoint = { day: string; sessions: number; tokens: number; cost: number };
 
-export function getDailySeries(days: number | null = 30): DailyPoint[] {
-  return ttlMemo(`getDailySeries:${days}`, READ_TTL_MS, () => _getDailySeries(days));
+export function getDailySeries(
+  days: number | null = 30,
+  projectId?: string | null,
+  modelFamily?: string | null,
+): DailyPoint[] {
+  return ttlMemo(
+    `getDailySeries:${days}:${projectId ?? ''}:${modelFamily ?? ''}`,
+    READ_TTL_MS,
+    () => _getDailySeries(days, projectId ?? null, modelFamily ?? null),
+  );
 }
 
-function _getDailySeries(days: number | null): DailyPoint[] {
+function _getDailySeries(days: number | null, projectId: string | null, modelFamily: string | null): DailyPoint[] {
   const db = getSqlite();
   let since: number;
   let bucketDays: number;
+  const projClause = projectId ? ' AND project_id = ?' : '';
+  const projParam: unknown[] = projectId ? [projectId] : [];
+  const mc = modelClause(modelFamily);
   if (days === null) {
-    const earliest = db.prepare('SELECT MIN(started_at) AS min FROM sessions').get() as { min: number | null };
+    const earliest = db
+      .prepare(`SELECT MIN(started_at) AS min FROM sessions WHERE 1=1${projClause}${mc.sql}`)
+      .get(...projParam, ...mc.params) as { min: number | null };
     if (!earliest.min) return [];
     since = earliest.min;
     bucketDays = Math.max(1, Math.ceil((Date.now() - since) / 86_400_000) + 1);
@@ -292,9 +331,9 @@ function _getDailySeries(days: number | null): DailyPoint[] {
   const rows = db
     .prepare(
       `SELECT started_at, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, est_cost_usd
-       FROM sessions WHERE started_at >= ?`,
+       FROM sessions WHERE started_at >= ?${projClause}${mc.sql}`,
     )
-    .all(since) as Array<{
+    .all(since, ...projParam, ...mc.params) as Array<{
       started_at: number;
       input_tokens: number;
       output_tokens: number;
@@ -335,20 +374,32 @@ export function getProviderBreakdown(): { provider: string; sessions: number; to
   );
 }
 
-export function getModelBreakdown(): { model: string; sessions: number; tokens: number; cost: number }[] {
-  return ttlMemo('getModelBreakdown', READ_TTL_MS, () => _getModelBreakdown());
+export function getModelBreakdown(
+  days: number | null = null,
+  projectId?: string | null,
+): { model: string; sessions: number; tokens: number; cost: number }[] {
+  return ttlMemo(
+    `getModelBreakdown:${days ?? 'all'}:${projectId ?? ''}`,
+    READ_TTL_MS,
+    () => _getModelBreakdown(days, projectId ?? null),
+  );
 }
 
-function _getModelBreakdown(): { model: string; sessions: number; tokens: number; cost: number }[] {
+function _getModelBreakdown(days: number | null, projectId: string | null): { model: string; sessions: number; tokens: number; cost: number }[] {
+  const conds: string[] = [];
+  const params: unknown[] = [];
+  if (days !== null) { conds.push('started_at >= ?'); params.push(Date.now() - days * 86_400_000); }
+  if (projectId) { conds.push('project_id = ?'); params.push(projectId); }
+  const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
   const raw = getSqlite()
     .prepare(
       `SELECT COALESCE(model, 'unknown') AS model,
               COUNT(*) AS sessions,
               SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens) AS tokens,
               SUM(est_cost_usd) AS cost
-       FROM sessions GROUP BY model`,
+       FROM sessions ${where} GROUP BY model`,
     )
-    .all() as { model: string; sessions: number; tokens: number; cost: number }[];
+    .all(...params) as { model: string; sessions: number; tokens: number; cost: number }[];
 
   // Collapse model variants into family labels (Claude Opus 4-7 + Opus 4-6 → "Claude Opus 4").
   // Keep raw model_id in the DB; this is purely cosmetic for the breakdown chart.
@@ -396,13 +447,23 @@ function _getOverview() {
   return row;
 }
 
-export function getRecentSessions(limit = 12): SessionRow[] {
+export function getRecentSessions(limit = 12, projectId?: string | null, modelFamily?: string | null): SessionRow[] {
+  const conds: string[] = [];
+  const params: unknown[] = [];
+  if (projectId) { conds.push('s.project_id = ?'); params.push(projectId); }
+  const mc = modelClause(modelFamily ?? null, 's');
+  // modelClause returns " AND ...". We're building the leading WHERE manually
+  // here, so trim the leading " AND " when it's the first clause.
+  const where = conds.length > 0
+    ? ` WHERE ${conds.join(' AND ')}${mc.sql}`
+    : (mc.sql ? ` WHERE 1=1${mc.sql}` : '');
+  params.push(...mc.params, limit);
   return getSqlite()
     .prepare(
       `SELECT ${SESSION_FIELDS} FROM sessions s JOIN projects p ON p.id = s.project_id
-       ORDER BY s.started_at DESC LIMIT ?`,
+       ${where} ORDER BY s.started_at DESC LIMIT ?`,
     )
-    .all(limit) as SessionRow[];
+    .all(...params) as SessionRow[];
 }
 
 export type ProjectBreakdown = {
@@ -414,14 +475,21 @@ export type ProjectBreakdown = {
   last_active: number;
 };
 
-export function getProjectBreakdown(days: number | null = 30, topN = 6): ProjectBreakdown[] {
-  return ttlMemo(`getProjectBreakdown:${days}:${topN}`, READ_TTL_MS, () =>
-    _getProjectBreakdown(days, topN),
+export function getProjectBreakdown(
+  days: number | null = 30,
+  topN = 6,
+  modelFamily?: string | null,
+): ProjectBreakdown[] {
+  return ttlMemo(
+    `getProjectBreakdown:${days}:${topN}:${modelFamily ?? ''}`,
+    READ_TTL_MS,
+    () => _getProjectBreakdown(days, topN, modelFamily ?? null),
   );
 }
 
-function _getProjectBreakdown(days: number | null, topN: number): ProjectBreakdown[] {
+function _getProjectBreakdown(days: number | null, topN: number, modelFamily: string | null): ProjectBreakdown[] {
   const since = days === null ? 0 : Date.now() - days * 86_400_000;
+  const mc = modelClause(modelFamily, 's');
   return getSqlite()
     .prepare(
       `SELECT p.id, p.name, p.last_active,
@@ -429,25 +497,36 @@ function _getProjectBreakdown(days: number | null, topN: number): ProjectBreakdo
               COALESCE(SUM(s.input_tokens + s.output_tokens + s.cache_read_tokens + s.cache_write_tokens), 0) AS tokens,
               COALESCE(SUM(s.est_cost_usd), 0) AS cost
        FROM projects p JOIN sessions s ON s.project_id = p.id
-       WHERE s.started_at >= ?
+       WHERE s.started_at >= ?${mc.sql}
        GROUP BY p.id ORDER BY tokens DESC LIMIT ?`,
     )
-    .all(since, topN) as ProjectBreakdown[];
+    .all(since, ...mc.params, topN) as ProjectBreakdown[];
 }
 
-export function getCategoryBreakdown(days: number | null = 30): { category: string; sessions: number; tokens: number }[] {
-  return ttlMemo(`getCategoryBreakdown:${days}`, READ_TTL_MS, () => _getCategoryBreakdown(days));
+export function getCategoryBreakdown(
+  days: number | null = 30,
+  projectId?: string | null,
+  modelFamily?: string | null,
+): { category: string; sessions: number; tokens: number }[] {
+  return ttlMemo(
+    `getCategoryBreakdown:${days}:${projectId ?? ''}:${modelFamily ?? ''}`,
+    READ_TTL_MS,
+    () => _getCategoryBreakdown(days, projectId ?? null, modelFamily ?? null),
+  );
 }
 
-function _getCategoryBreakdown(days: number | null): { category: string; sessions: number; tokens: number }[] {
+function _getCategoryBreakdown(days: number | null, projectId: string | null, modelFamily: string | null): { category: string; sessions: number; tokens: number }[] {
   const since = days === null ? 0 : Date.now() - days * 86_400_000;
+  const projClause = projectId ? ' AND project_id = ?' : '';
+  const projParam: unknown[] = projectId ? [projectId] : [];
+  const mc = modelClause(modelFamily);
   const rows = getSqlite()
     .prepare(
       `SELECT category, categories,
               (input_tokens + output_tokens + cache_read_tokens + cache_write_tokens) AS tokens
-       FROM sessions WHERE started_at >= ?`,
+       FROM sessions WHERE started_at >= ?${projClause}${mc.sql}`,
     )
-    .all(since) as { category: string | null; categories: string | null; tokens: number }[];
+    .all(since, ...projParam, ...mc.params) as { category: string | null; categories: string | null; tokens: number }[];
 
   // A session with N labels contributes 1 to each label's session count and
   // its full token total to each. Slight double-count by design — the chart
@@ -480,15 +559,26 @@ export type RangeSummary = {
   active_months_prev: number;
 };
 
-export function getRangeSummary(days: number | null = 30): RangeSummary {
-  return ttlMemo(`getRangeSummary:${days}`, READ_TTL_MS, () => _getRangeSummary(days));
+export function getRangeSummary(
+  days: number | null = 30,
+  projectId?: string | null,
+  modelFamily?: string | null,
+): RangeSummary {
+  return ttlMemo(
+    `getRangeSummary:${days}:${projectId ?? ''}:${modelFamily ?? ''}`,
+    READ_TTL_MS,
+    () => _getRangeSummary(days, projectId ?? null, modelFamily ?? null),
+  );
 }
 
-function _getRangeSummary(days: number | null): RangeSummary {
+function _getRangeSummary(days: number | null, projectId: string | null, modelFamily: string | null): RangeSummary {
   const db = getSqlite();
   const now = Date.now();
   const start = days === null ? 0 : now - days * 86_400_000;
   const prevStart = days === null ? 0 : start - days * 86_400_000;
+  const projClause = projectId ? ' AND project_id = ?' : '';
+  const projParam: unknown[] = projectId ? [projectId] : [];
+  const mc = modelClause(modelFamily);
 
   const cur = db
     .prepare(
@@ -497,9 +587,9 @@ function _getRangeSummary(days: number | null): RangeSummary {
               COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS tokens,
               COALESCE(SUM(est_cost_usd), 0) AS cost,
               COUNT(DISTINCT strftime('%Y-%m', started_at/1000, 'unixepoch')) AS active_months
-       FROM sessions WHERE started_at >= ?`,
+       FROM sessions WHERE started_at >= ?${projClause}${mc.sql}`,
     )
-    .get(start) as {
+    .get(start, ...projParam, ...mc.params) as {
       sessions: number;
       projects: number;
       tokens: number;
@@ -517,9 +607,9 @@ function _getRangeSummary(days: number | null): RangeSummary {
               COALESCE(SUM(input_tokens + output_tokens + cache_read_tokens + cache_write_tokens), 0) AS tokens,
               COALESCE(SUM(est_cost_usd), 0) AS cost,
               COUNT(DISTINCT strftime('%Y-%m', started_at/1000, 'unixepoch')) AS active_months
-       FROM sessions WHERE started_at >= ? AND started_at < ?`,
+       FROM sessions WHERE started_at >= ? AND started_at < ?${projClause}${mc.sql}`,
     )
-    .get(prevStart, start) as {
+    .get(prevStart, start, ...projParam, ...mc.params) as {
       sessions: number;
       tokens: number;
       cost: number;
@@ -540,6 +630,65 @@ export function getDaySummary(day: string): string | null {
     | { summary: string }
     | undefined;
   return row?.summary ?? null;
+}
+
+// List of distinct model families currently present in the DB, ranked by usage.
+// Used to populate the model filter dropdown.
+export function getModelFamilies(): { family: string; sessions: number }[] {
+  return ttlMemo('getModelFamilies', READ_TTL_MS, () => _getModelFamilies());
+}
+
+function _getModelFamilies(): { family: string; sessions: number }[] {
+  const rows = getSqlite()
+    .prepare(
+      `SELECT COALESCE(model, 'unknown') AS model, COUNT(*) AS sessions
+       FROM sessions GROUP BY model`,
+    )
+    .all() as { model: string; sessions: number }[];
+  const families = new Map<string, number>();
+  for (const r of rows) {
+    const label = normalizeModelName(r.model);
+    families.set(label, (families.get(label) || 0) + r.sessions);
+  }
+  return [...families.entries()]
+    .map(([family, sessions]) => ({ family, sessions }))
+    .sort((a, b) => b.sessions - a.sessions);
+}
+
+// Resolve a family label ("Claude Opus 4") into the list of raw model_ids
+// stored in the sessions table that roll up to it. Used to build the IN-clause
+// for model-family filtering across the dashboard queries.
+function modelIdsForFamily(family: string): string[] {
+  const rows = getSqlite()
+    .prepare(`SELECT DISTINCT model FROM sessions WHERE model IS NOT NULL`)
+    .all() as { model: string }[];
+  return rows.filter((r) => normalizeModelName(r.model) === family).map((r) => r.model);
+}
+
+// Build a (clause, params) pair for an optional model-family filter, plus the
+// project-id filter from earlier callers. Centralized so every dashboard query
+// applies the same predicate.
+function modelClause(modelFamily: string | null, table = ''): { sql: string; params: unknown[] } {
+  if (!modelFamily) return { sql: '', params: [] };
+  const ids = modelIdsForFamily(modelFamily);
+  if (ids.length === 0) {
+    // Family no longer present (or never was). Force zero rows by binding 1=0
+    // — saner than throwing and breaks no existing queries.
+    return { sql: ' AND 1=0', params: [] };
+  }
+  const placeholders = ids.map(() => '?').join(',');
+  const col = table ? `${table}.model` : 'model';
+  return { sql: ` AND ${col} IN (${placeholders})`, params: ids };
+}
+
+export function getUnclassifiedCount(): number {
+  const row = getSqlite()
+    .prepare(
+      `SELECT COUNT(*) AS n FROM sessions
+       WHERE category IS NULL AND first_prompt IS NOT NULL AND length(first_prompt) > 0`,
+    )
+    .get() as { n: number };
+  return row.n;
 }
 
 export type QuotaSnapshot = {
