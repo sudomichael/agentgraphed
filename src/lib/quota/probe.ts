@@ -69,26 +69,23 @@ export async function probeClaudeQuota(): Promise<QuotaProbeResult> {
   const credsResult = await readClaudeCredentials();
   if (!credsResult.ok) return { ok: false, error: credsResult.error };
   let creds = credsResult.creds;
+  let source = credsResult.source;
   let tokenWasRefreshed = false;
 
   // Proactively refresh if expired or near-expiry.
   if (isExpired(creds.expiresAt)) {
-    const r = await refreshClaudeCredentials(creds);
+    const r = await refreshClaudeCredentials(creds, source);
     if (!r.ok) {
-      // 429 on refresh almost always means the stored refresh token has
-      // already been rotated out (Claude Code refreshed in-memory without
-      // writing to disk, or the file is from a previous install). Surface
-      // a clear next-step instead of just relaying "rate limited".
       const isStale = r.httpStatus === 429 || r.httpStatus === 400 || r.httpStatus === 401;
       const hint = isStale
-        ? 'Stored token cannot be refreshed. Run `claude /login` in your terminal to rewrite ~/.claude/.credentials.json, then try again.'
-        : `Token expired and refresh failed: ${r.error}`;
+        ? 'Stored token cannot be refreshed. Run `claude /login` in your terminal, then try again.'
+        : r.error;
       return { ok: false, error: hint };
     }
-    // Re-read to get the new token value.
     const reread = await readClaudeCredentials();
     if (!reread.ok) return { ok: false, error: reread.error };
     creds = reread.creds;
+    source = reread.source;
     tokenWasRefreshed = true;
   }
 
@@ -101,11 +98,12 @@ export async function probeClaudeQuota(): Promise<QuotaProbeResult> {
 
   // 401 → refresh once then retry.
   if (result.status === 401 && !tokenWasRefreshed) {
-    const r = await refreshClaudeCredentials(creds);
-    if (!r.ok) return { ok: false, error: `401 from API and refresh failed: ${r.error}`, httpStatus: 401 };
+    const r = await refreshClaudeCredentials(creds, source);
+    if (!r.ok) return { ok: false, error: `401 from API: ${r.error}`, httpStatus: 401 };
     const reread = await readClaudeCredentials();
     if (!reread.ok) return { ok: false, error: reread.error };
     creds = reread.creds;
+    source = reread.source;
     tokenWasRefreshed = true;
     try {
       result = await probeWithToken(creds.accessToken);

@@ -18,11 +18,12 @@
 import { readFile, writeFile, rename } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { ClaudeCredentials } from './credentials';
+import type { ClaudeCredentials, CredentialsSource } from './credentials';
 
 const OAUTH_TOKEN_URL = 'https://console.anthropic.com/v1/oauth/token';
 const CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
-const CREDENTIALS_PATH = join(homedir(), '.claude', '.credentials.json');
+const CREDENTIALS_PATH =
+  process.env.CLAUDE_CREDENTIALS_PATH || join(homedir(), '.claude', '.credentials.json');
 const EXPIRY_SKEW_MS = 120_000; // 2 min
 
 export type RefreshResult =
@@ -39,7 +40,21 @@ type OAuthTokenResponse = {
   expires_in: number; // seconds
 };
 
-export async function refreshClaudeCredentials(current: ClaudeCredentials): Promise<RefreshResult> {
+export async function refreshClaudeCredentials(
+  current: ClaudeCredentials,
+  source: CredentialsSource = 'file',
+): Promise<RefreshResult> {
+  // When credentials come from the macOS Keychain we don't try to write back —
+  // Claude Code owns that entry and our `security add-generic-password` would
+  // either fail (different user/keychain context) or clobber whatever the CLI
+  // has cached. Surface a clear next step instead.
+  if (source === 'keychain') {
+    return {
+      ok: false,
+      error: 'Token expired in Keychain. Reopen Claude Code (or run a `claude` command) so it can refresh, then probe again.',
+    };
+  }
+
   let originalRaw: string;
   try {
     originalRaw = await readFile(CREDENTIALS_PATH, 'utf8');
