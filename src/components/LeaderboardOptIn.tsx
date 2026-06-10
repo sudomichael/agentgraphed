@@ -74,37 +74,34 @@ export function LeaderboardOptIn({ initialOptIn, initialHandle }: Props) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 flex-wrap">
-        <label className="text-body-sm text-ink-dim flex items-center gap-2">
-          Handle
-          <input
-            type="text"
-            value={handle}
-            onChange={(e) => setHandle(e.target.value)}
-            placeholder="your-handle"
-            className="bg-surface-1 border border-surface-3 rounded px-3 h-9 text-body-md font-mono w-56 focus:outline-none focus:border-primary"
-            maxLength={24}
-            spellCheck={false}
-            autoCorrect="off"
-            autoCapitalize="off"
-          />
-        </label>
+      <div className="flex items-stretch gap-2 flex-wrap">
+        <input
+          type="text"
+          value={handle}
+          onChange={(e) => setHandle(e.target.value)}
+          placeholder="your-handle"
+          aria-label="Handle"
+          className="bg-surface-1 border border-surface-3 rounded px-4 h-11 text-body-md font-mono flex-1 min-w-[240px] focus:outline-none focus:border-secondary"
+          maxLength={24}
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="off"
+        />
         <button
           type="button"
           onClick={() => onSubmit(true)}
           disabled={pending}
-          className="btn btn-primary"
+          className="btn btn-primary !h-11 !px-6 text-body-md font-semibold"
         >
-          {pending ? 'Submitting…' : 'Opt in & submit'}
+          {pending ? 'Joining…' : 'Join leaderboard →'}
         </button>
       </div>
       {error && (
         <div className="text-body-sm text-error">{error}</div>
       )}
       <div className="text-[11px] text-ink-mute leading-relaxed">
-        Picks a fun random default — change it to whatever you want. Anonymous; no email or
-        account needed. You can change or claim it later with a GitHub OAuth (coming in a
-        future release).
+        Defaults to a friendly random handle — change it to whatever you want. Anonymous; no email
+        or account needed. You can opt out (and delete your data) any time.
       </div>
     </div>
   );

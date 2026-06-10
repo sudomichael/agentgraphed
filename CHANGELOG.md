@@ -4,6 +4,17 @@ All notable changes to this project will be documented here.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.3] — 2026-06-10
+
+### Changed
+- **Leaderboard page is now a signup page.** Old version led with the JSON payload and the privacy notice; new version leads with the value prop, your stats, an **estimated rank** computed live against the public leaderboard, and a prominent &ldquo;Join leaderboard&rdquo; button. Privacy moved to a collapsed disclosure at the bottom — short summary opens to full bullet list; JSON payload is a second nested disclosure inside that.
+- **Top 5 live leaderboard preview** under the join CTA. Fetched server-side from `agentgraphed.com/api/leaderboard/range` (60-second cache). If you&apos;re already opted in, your row is highlighted as &ldquo;you&rdquo;.
+- **Opted-in state redesigned** into a confirmation hero (handle + profile link + last-submission time), the same stats card + leaderboard preview, then audit / privacy / opt-out as collapsible sections below.
+- **Join button is bigger and clearer**: &ldquo;Join leaderboard →&rdquo; instead of &ldquo;Opt in &amp; submit&rdquo;. Handle input is taller and full-width on small screens.
+
+### Added
+- **Estimated rank** based on cost · 7d. Pulls the public top 100 and reports where you&apos;d slot in right now if you joined.
+
 ## [0.5.2] — 2026-06-10
 
 ### Added
