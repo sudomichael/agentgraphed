@@ -4,6 +4,12 @@ All notable changes to this project will be documented here.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.6] — 2026-06-10
+
+### Added
+- **Share the cost-breakdown view.** New share-icon button in the analytics "Where your cost went" card generates a 1200×630 PNG via `/api/share/cost-breakdown` and copies it to your clipboard. AgentGraphed brand bar, headline cost, billing-mix bar with legend, two-column source breakdown matching the on-page layout, honest pro-rating footer. Same range param as the dashboard share so the PNG matches whatever window you're viewing.
+- **Collapsible per-side source lists** on the analytics card. Top 5 rows visible by default per side ("What Claude read" / "What Claude said"), with a `▾ show N more` toggle that expands each column independently. Keeps the headline-relevant entries above the fold; deep tail is one click away.
+
 ## [0.3.5] — 2026-06-09
 
 ### Added
