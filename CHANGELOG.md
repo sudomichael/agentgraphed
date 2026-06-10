@@ -4,6 +4,22 @@ All notable changes to this project will be documented here.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.5] — 2026-06-09
+
+### Added
+- **Token breakdown by source.** New schema (v4) captures per-content-item bytes from every Claude Code session: tool results (Bash output, Read contents, MCP responses, …), tool calls (Edit/Write/Bash/MCP arguments), Claude's text replies, and user prompts. Stored per-message with timestamps so it windows the same way the rest of the dashboard does.
+- **"Breakdown" toggle on the usage chart.** Fourth metric option next to Tokens / Sessions / Est. Cost. Renders a stacked area (or bar) over time showing pro-rated cost per source — Read, Edit, Bash, MCP, your prompts, Claude's text, and an "other" rollup for the long tail. Per-bucket sum equals the headline cost exactly; honest pro-rating uses each session's input-side and output-side byte share to split actual billed cost across content items. Lin/log auto-disables in breakdown mode because log of a sum isn't the sum of logs.
+- **"Where the tokens came from" card on session detail.** Per-session view of the same data — two stacked groupings ("What Claude read" / "What Claude said"), per-source rows with bars, est. tokens, raw bytes, and percent. MCP tools render as `MCP · <server> · <tool>` with the prefix stripped.
+- **Full detail card on Analytics.** Cross-window view with input/output split, billing-mix subdivision (fresh input / cache creation / cache read / output), per-source rows with pro-rated cost, and an honest pro-rating footer.
+
+### Fixed
+- **Sub-2-day windows show hourly buckets.** 24h was rendering as a 2-bucket day-shaped chart; now shows ~25 hourly bars. The chart label formatter discriminates on bucket key length so the X-axis reads `HH:00` when hourly and `MM-DD` when daily.
+- **Claude subagent files no longer overwrite tool_io.** Subagent files for the same session use `ON CONFLICT(message_id, idx) DO UPDATE` keyed on Claude's stable per-message UUID — same lesson as the messages-table fix in 0.3.0.
+- **Codex "resetting" quota label** shows `<1m` for the rolling per-minute window.
+
+### Changed
+- **Codex sessions don't contribute to the token breakdown** — Codex's JSONL is event-streamed rather than per-turn content arrays, which needs a real second adapter. Tracked as a follow-up; Codex sessions still appear in every other view.
+
 ## [0.3.4] — 2026-06-09
 
 ### Added

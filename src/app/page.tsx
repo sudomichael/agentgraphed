@@ -10,7 +10,6 @@ import { ShareButton } from '@/components/ShareButton';
 import { ProjectFilter } from '@/components/ProjectFilter';
 import { ModelFilter } from '@/components/ModelFilter';
 import { ModelBreakdownCard } from '@/components/ModelBreakdownCard';
-import { CacheHealthStrip } from '@/components/CacheHealthStrip';
 import { ClassifyChip } from '@/components/ClassifyChip';
 import {
   getOverview,
@@ -26,7 +25,6 @@ import {
   getUnclassifiedCount,
   getModelBreakdown,
   getModelFamilies,
-  getTokenBreakdown,
   getTokenBreakdownSeries,
 } from '@/lib/queries';
 import { triggerBackgroundIngest, lastIngestedAt } from '@/lib/ingest/auto';
@@ -90,7 +88,6 @@ export default async function DashboardPage({
   const todaySessions = getTodaySessions(projectId, modelFamily);
   const recent = getRecentSessions(8, projectId, modelFamily);
   const daySummary = getDaySummary(dayKey(Date.now()));
-  const tokenBreakdown = getTokenBreakdown(days, projectId, modelFamily);
   const tokenSeries = metric === 'breakdown'
     ? getTokenBreakdownSeries(days, projectId, modelFamily)
     : null;
@@ -191,8 +188,6 @@ export default async function DashboardPage({
           chart={chart}
           breakdown={tokenSeries ?? undefined}
         />
-
-        <CacheHealthStrip summary={tokenBreakdown} />
 
         <div className="grid grid-cols-3 gap-4">
           <div className="card col-span-2">
