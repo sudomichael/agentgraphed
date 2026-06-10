@@ -1,6 +1,6 @@
 import { getSqlite } from './db/client';
 import { dayKey } from './format';
-import { normalizeModelName } from './pricing';
+import { normalizeModelName, estimateCost } from './pricing';
 import { sessionCategories as _sessionCategories } from './sessionDisplay';
 import { ttlMemo } from './cache';
 
@@ -270,23 +270,251 @@ export function getSessionTokenBreakdown(sessionId: string): SessionTokenBreakdo
     .all(sessionId) as SessionTokenBreakdownRow[];
 }
 
-// Aggregated content-source breakdown across the dashboard's current window.
-// Same row shape as the per-session version so the UI can share components.
-// Filter parameters mirror the rest of the dashboard queries (range + project
-// + model family). Memoized like the others — five-second TTL is plenty.
-//
-// Joins tool_io → messages so we can window by message timestamp, then →
-// sessions for the project / model filters. Sessions whose source JSONLs
-// were rotated off disk before v4 contribute zero tool_io rows; they're
-// silently dropped from this view, which is honest — we don't have the
-// breakdown data for them. The card's caller knows to render a "limited
-// coverage" hint when the SUM(est_tokens) here is materially less than
-// session-level totals for the same window.
+// Pro-rated cost-aware breakdown. Each tool_io row carries a literal byte
+// count of unique content. We attribute the *session's* actual est_cost_usd
+// to those rows by share of bytes — input-side cost split among
+// tool_result/user_text rows weighted by bytes, output-side cost split among
+// tool_use/assistant_text rows weighted by bytes. That way the sum of
+// per-source costs equals the session's headline cost: nothing made up,
+// nothing left over. The big asymmetry between "what bytes flowed" vs "what
+// was billed" (cache replay multiplying input tokens 50-100x on long
+// sessions) is *already inside* est_cost_usd, so when we pro-rate it we
+// implicitly distribute the cache-replay cost across the same sources that
+// caused the cacheable content in the first place. Honest tradeoff: we
+// assume each byte of a given kind contributed equally to that kind's cost,
+// which understates the cost of content that happened to land in fresh
+// input vs cache_read. That's the limit of what we can know without
+// per-item billing data.
+export type TokenBreakdownRow = SessionTokenBreakdownRow & {
+  est_cost_usd: number;
+};
+
+export type TokenBreakdownSummary = {
+  rows: TokenBreakdownRow[];
+  // Headline-friendly totals computed from sessions, NOT from tool_io.
+  // billed_tokens = input + output + cache_read + cache_write across sessions
+  // in the window — matches the metric card. unique_bytes is the literal
+  // sum of tool_io bytes (no multiplication for cache replay). The ratio
+  // is the punchline of the "why don't these numbers match" question:
+  // most billed input is cache replay of the same unique content.
+  billed_tokens: number;
+  unique_bytes: number;
+  total_cost_usd: number;
+  // Subdivide billed_tokens so the UI can show the cache mix that costs
+  // dollars: fresh input, cache_creation (premium), cache_read (cheap),
+  // output. The user's lever to reduce cost is mostly moving fresh-input
+  // share down by keeping conversation context stable.
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+};
+
+// Time-series version of getTokenBreakdown: returns one bucket per time
+// unit (same hourly-vs-daily granularity rule as getDailySeries) with one
+// numeric field per source. Pre-stacked so Recharts can render it as N
+// stacked Area/Bar series. Same pro-rating rules as getTokenBreakdown so
+// the per-bucket SUM(over sources) lines up with the dashboard's existing
+// cost series. `sources` is the resolved column list ranked by total cost
+// in the window — top 6 source labels + an "other" bucket so chart legends
+// stay readable.
+export type TokenBreakdownPoint = { day: string } & Record<string, number | string>;
+export type TokenBreakdownSeries = {
+  buckets: TokenBreakdownPoint[];
+  sources: string[]; // ordered: top by total cost, then "other"
+};
+export function getTokenBreakdownSeries(
+  days: number | null = 30,
+  projectId?: string | null,
+  modelFamily?: string | null,
+): TokenBreakdownSeries {
+  return ttlMemo(
+    `getTokenBreakdownSeries:${days ?? 'all'}:${projectId ?? ''}:${modelFamily ?? ''}`,
+    READ_TTL_MS,
+    () => _getTokenBreakdownSeries(days, projectId ?? null, modelFamily ?? null),
+  );
+}
+
+function _getTokenBreakdownSeries(
+  days: number | null,
+  projectId: string | null,
+  modelFamily: string | null,
+): TokenBreakdownSeries {
+  const db = getSqlite();
+  const conds: string[] = [];
+  const params: unknown[] = [];
+  if (days !== null) {
+    conds.push('t.timestamp >= ?');
+    params.push(Date.now() - days * 86_400_000);
+  }
+  if (projectId) {
+    conds.push('s.project_id = ?');
+    params.push(projectId);
+  }
+  const mc = modelClause(modelFamily, 's');
+  const baseWhere = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
+  const where = mc.sql
+    ? (baseWhere ? `${baseWhere}${mc.sql}` : `WHERE 1=1${mc.sql}`)
+    : baseWhere;
+
+  // Per-session in-window byte totals for pro-rating. Same approach as the
+  // headline query — pro-rated cost per byte equals in_cost / in_bytes_total
+  // (or out_cost / out_bytes_total).
+  const tWindowCond = days !== null ? 't.timestamp >= ?' : '1=1';
+  const tWindowParam = days !== null ? [Date.now() - days * 86_400_000] : [];
+
+  type Row = {
+    timestamp: number;
+    session_id: string;
+    kind: SessionTokenBreakdownRow['kind'];
+    source: string | null;
+    bytes: number;
+    s_input_tokens: number;
+    s_output_tokens: number;
+    s_cache_read_tokens: number;
+    s_cache_write_tokens: number;
+    s_model: string | null;
+    s_in_bytes_total: number;
+    s_out_bytes_total: number;
+  };
+  const rows = db
+    .prepare(
+      `WITH session_bytes_in_window AS (
+         SELECT t.session_id,
+                SUM(CASE WHEN t.kind IN ('tool_result','user_text') THEN t.bytes ELSE 0 END) AS in_bytes,
+                SUM(CASE WHEN t.kind IN ('tool_use','assistant_text') THEN t.bytes ELSE 0 END) AS out_bytes
+         FROM tool_io t
+         WHERE ${tWindowCond}
+         GROUP BY t.session_id
+       )
+       SELECT t.timestamp, t.session_id, t.kind, t.source, t.bytes,
+              s.input_tokens AS s_input_tokens,
+              s.output_tokens AS s_output_tokens,
+              s.cache_read_tokens AS s_cache_read_tokens,
+              s.cache_write_tokens AS s_cache_write_tokens,
+              s.model AS s_model,
+              sb.in_bytes AS s_in_bytes_total,
+              sb.out_bytes AS s_out_bytes_total
+       FROM tool_io t
+         JOIN sessions s ON s.id = t.session_id
+         JOIN session_bytes_in_window sb ON sb.session_id = t.session_id
+       ${where}`,
+    )
+    .all(...tWindowParam, ...params, ...mc.params) as Row[];
+
+  if (rows.length === 0) return { buckets: [], sources: [] };
+
+  // Same bucketing as getDailySeries: hourly for days < 2, daily otherwise.
+  const hourly = days !== null && days < 2;
+  const bucketMs = hourly ? 3_600_000 : 86_400_000;
+  const now = Date.now();
+  let since: number;
+  let bucketCount: number;
+  if (days === null) {
+    const earliest = Math.min(...rows.map((r) => r.timestamp));
+    since = earliest;
+    bucketCount = Math.max(1, Math.ceil((now - since) / bucketMs) + 1);
+  } else {
+    since = now - days * 86_400_000;
+    bucketCount = Math.ceil((days * 86_400_000) / bucketMs) + 1;
+  }
+
+  const bucketKeyOf = (ms: number): string => {
+    const d = new Date(ms);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    if (!hourly) return `${y}-${m}-${day}`;
+    const h = String(d.getHours()).padStart(2, '0');
+    return `${y}-${m}-${day} ${h}:00`;
+  };
+
+  // Pre-seed empty buckets so the chart shows continuous time even if a
+  // source has zero spend in a bucket.
+  const buckets = new Map<string, TokenBreakdownPoint>();
+  for (let i = 0; i < bucketCount; i++) {
+    const d = new Date();
+    if (hourly) d.setHours(d.getHours() - i, 0, 0, 0);
+    else { d.setDate(d.getDate() - i); d.setHours(0, 0, 0, 0); }
+    const k = bucketKeyOf(d.getTime());
+    buckets.set(k, { day: k });
+  }
+
+  const sourceLabel = (kind: SessionTokenBreakdownRow['kind'], source: string | null): string => {
+    if (kind === 'user_text') return 'Your prompts';
+    if (kind === 'assistant_text') return 'Claude reply';
+    const name = source ?? 'unknown';
+    if (name.startsWith('mcp__')) {
+      const parts = name.slice(5).split('__');
+      if (parts.length >= 2) return `${parts[0]} · ${parts.slice(1).join('__')}`;
+      return parts.join('__');
+    }
+    // For tool_use the same name as tool_result; collapse so legend stays short
+    return name;
+  };
+
+  // First pass: compute per-source totals to pick top-N for the legend.
+  const sourceTotals = new Map<string, number>();
+  const perBucketContribs: Array<{ k: string; label: string; cost: number }> = [];
+  for (const r of rows) {
+    const k = bucketKeyOf(r.timestamp);
+    if (!buckets.has(k)) continue;
+    const inCost = estimateCost({
+      model: r.s_model,
+      inputTokens: r.s_input_tokens,
+      outputTokens: 0,
+      cacheReadTokens: r.s_cache_read_tokens,
+      cacheWriteTokens: r.s_cache_write_tokens,
+    });
+    const outCost = estimateCost({
+      model: r.s_model,
+      inputTokens: 0,
+      outputTokens: r.s_output_tokens,
+    });
+    let cost = 0;
+    if (r.kind === 'tool_result' || r.kind === 'user_text') {
+      cost = r.s_in_bytes_total > 0 ? (r.bytes / r.s_in_bytes_total) * inCost : 0;
+    } else {
+      cost = r.s_out_bytes_total > 0 ? (r.bytes / r.s_out_bytes_total) * outCost : 0;
+    }
+    const label = sourceLabel(r.kind, r.source);
+    sourceTotals.set(label, (sourceTotals.get(label) || 0) + cost);
+    perBucketContribs.push({ k, label, cost });
+  }
+
+  // Top 6 sources by total cost; rest collapse into "other".
+  const TOP = 6;
+  const ranked = [...sourceTotals.entries()].sort((a, b) => b[1] - a[1]);
+  const topSources = new Set(ranked.slice(0, TOP).map(([s]) => s));
+  const orderedSources = ranked.slice(0, TOP).map(([s]) => s);
+  const hasOther = ranked.length > TOP;
+  if (hasOther) orderedSources.push('other');
+
+  // Initialize bucket fields so Recharts gets a proper stacked render.
+  for (const b of buckets.values()) {
+    for (const s of orderedSources) b[s] = 0;
+  }
+
+  // Second pass: deposit each contribution into its bucket+source column.
+  for (const c of perBucketContribs) {
+    const bucket = buckets.get(c.k);
+    if (!bucket) continue;
+    const col = topSources.has(c.label) ? c.label : 'other';
+    if (!hasOther && col === 'other') continue;
+    bucket[col] = ((bucket[col] as number) || 0) + c.cost;
+  }
+
+  return {
+    buckets: [...buckets.values()].sort((a, b) => String(a.day).localeCompare(String(b.day))),
+    sources: orderedSources,
+  };
+}
+
 export function getTokenBreakdown(
   days: number | null = 30,
   projectId?: string | null,
   modelFamily?: string | null,
-): SessionTokenBreakdownRow[] {
+): TokenBreakdownSummary {
   return ttlMemo(
     `getTokenBreakdown:${days ?? 'all'}:${projectId ?? ''}:${modelFamily ?? ''}`,
     READ_TTL_MS,
@@ -298,7 +526,7 @@ function _getTokenBreakdown(
   days: number | null,
   projectId: string | null,
   modelFamily: string | null,
-): SessionTokenBreakdownRow[] {
+): TokenBreakdownSummary {
   const conds: string[] = [];
   const params: unknown[] = [];
   if (days !== null) {
@@ -314,22 +542,182 @@ function _getTokenBreakdown(
   const where = mc.sql
     ? (baseWhere ? `${baseWhere}${mc.sql}` : `WHERE 1=1${mc.sql}`)
     : baseWhere;
-  // tool_io carries its own timestamp + session_id, so the join to sessions
-  // is only needed when there's a project / model filter. We keep the join
-  // unconditionally for simplicity — the sessions index makes it cheap.
-  return getSqlite()
+
+  const db = getSqlite();
+
+  // Per-session per-(kind,source) breakdown PLUS the session's own
+  // input/output cost split. We pro-rate in JS rather than SQL because the
+  // ratio depends on dynamic per-row sums.
+  //
+  // CRITICAL: session_bytes is computed *over the same filtered slice* as
+  // the breakdown rows, not over all of the session's tool_io rows. That
+  // way every dollar in the per-row sum corresponds to a windowed byte,
+  // and the per-row totals add up to the same total_cost_usd headline
+  // (which we also restrict to the windowed slice — see further down).
+  const tWindowCond = days !== null ? 't.timestamp >= ?' : '1=1';
+  const tWindowParam = days !== null ? [Date.now() - days * 86_400_000] : [];
+  type Row = {
+    session_id: string;
+    kind: SessionTokenBreakdownRow['kind'];
+    source: string | null;
+    bytes: number;
+    est_tokens: number;
+    items: number;
+    s_in_bytes_total: number;
+    s_out_bytes_total: number;
+  };
+  const rows = db
     .prepare(
-      `SELECT t.kind, t.source,
+      `WITH session_bytes_in_window AS (
+         SELECT t.session_id,
+                SUM(CASE WHEN t.kind IN ('tool_result', 'user_text') THEN t.bytes ELSE 0 END) AS in_bytes,
+                SUM(CASE WHEN t.kind IN ('tool_use', 'assistant_text') THEN t.bytes ELSE 0 END) AS out_bytes
+         FROM tool_io t
+         WHERE ${tWindowCond}
+         GROUP BY t.session_id
+       )
+       SELECT t.session_id, t.kind, t.source,
               SUM(t.bytes) AS bytes,
               SUM(t.est_tokens) AS est_tokens,
-              COUNT(*) AS items
+              COUNT(*) AS items,
+              s.input_tokens AS s_input_tokens,
+              s.output_tokens AS s_output_tokens,
+              s.cache_read_tokens AS s_cache_read_tokens,
+              s.cache_write_tokens AS s_cache_write_tokens,
+              s.model AS s_model,
+              s.est_cost_usd AS s_est_cost,
+              sb.in_bytes AS s_in_bytes_total,
+              sb.out_bytes AS s_out_bytes_total
        FROM tool_io t
          JOIN sessions s ON s.id = t.session_id
+         JOIN session_bytes_in_window sb ON sb.session_id = t.session_id
        ${where}
-       GROUP BY t.kind, t.source
-       ORDER BY est_tokens DESC`,
+       GROUP BY t.session_id, t.kind, t.source`,
     )
-    .all(...params, ...mc.params) as SessionTokenBreakdownRow[];
+    .all(...tWindowParam, ...params, ...mc.params) as Array<Row & {
+      s_input_tokens: number;
+      s_output_tokens: number;
+      s_cache_read_tokens: number;
+      s_cache_write_tokens: number;
+      s_model: string | null;
+      s_est_cost: number;
+    }>;
+
+  // Aggregate per (kind, source), summing pro-rated cost across sessions.
+  // Also track per-session total cost attributed (in + out) so the headline
+  // total_cost_usd below is restricted to the windowed slice — otherwise the
+  // per-row sum and the headline diverge whenever a session straddles the
+  // window boundary.
+  const acc = new Map<string, TokenBreakdownRow>();
+  const sessionCostInWindow = new Map<string, number>();
+  for (const r of rows) {
+    // Split the session's est_cost_usd into input-side and output-side using
+    // the pricing module on the session's actual token mix. More accurate
+    // than treating input/output as the same per-token price.
+    const inCost = estimateCost({
+      model: r.s_model,
+      inputTokens: r.s_input_tokens,
+      outputTokens: 0,
+      cacheReadTokens: r.s_cache_read_tokens,
+      cacheWriteTokens: r.s_cache_write_tokens,
+    });
+    const outCost = estimateCost({
+      model: r.s_model,
+      inputTokens: 0,
+      outputTokens: r.s_output_tokens,
+    });
+    let share = 0;
+    if (r.kind === 'tool_result' || r.kind === 'user_text') {
+      share = r.s_in_bytes_total > 0 ? (r.bytes / r.s_in_bytes_total) * inCost : 0;
+    } else {
+      share = r.s_out_bytes_total > 0 ? (r.bytes / r.s_out_bytes_total) * outCost : 0;
+    }
+    sessionCostInWindow.set(r.session_id, (sessionCostInWindow.get(r.session_id) || 0) + share);
+    const key = `${r.kind}|${r.source ?? ''}`;
+    const cur = acc.get(key);
+    if (cur) {
+      cur.bytes += r.bytes;
+      cur.est_tokens += r.est_tokens;
+      cur.items += r.items;
+      cur.est_cost_usd += share;
+    } else {
+      acc.set(key, {
+        kind: r.kind,
+        source: r.source,
+        bytes: r.bytes,
+        est_tokens: r.est_tokens,
+        items: r.items,
+        est_cost_usd: share,
+      });
+    }
+  }
+  const headlineCost = [...sessionCostInWindow.values()].reduce((s, c) => s + c, 0);
+
+  // Pro-rate the billed-token totals (input/output/cache_*) by the same
+  // in-window byte ratio per session, so the headline cache mix percentages
+  // also reflect "just the slice the user is looking at" rather than the
+  // whole session. Without this, picking range=24h on a session that's been
+  // running for 3 days would show 3 days of cache_read on the dashboard.
+  let inputT = 0;
+  let outputT = 0;
+  let cacheRT = 0;
+  let cacheWT = 0;
+  let uniqueB = 0;
+  type SessionRollup = {
+    in_bytes_total: number;
+    out_bytes_total: number;
+    s_in_window_bytes: number; // in-window in-side bytes for this session
+    s_out_window_bytes: number;
+    s_input_tokens: number;
+    s_output_tokens: number;
+    s_cache_read_tokens: number;
+    s_cache_write_tokens: number;
+  };
+  const perSession = new Map<string, SessionRollup>();
+  for (const r of rows) {
+    let agg = perSession.get(r.session_id);
+    if (!agg) {
+      agg = {
+        in_bytes_total: r.s_in_bytes_total,
+        out_bytes_total: r.s_out_bytes_total,
+        s_in_window_bytes: 0,
+        s_out_window_bytes: 0,
+        s_input_tokens: r.s_input_tokens,
+        s_output_tokens: r.s_output_tokens,
+        s_cache_read_tokens: r.s_cache_read_tokens,
+        s_cache_write_tokens: r.s_cache_write_tokens,
+      };
+      perSession.set(r.session_id, agg);
+    }
+    if (r.kind === 'tool_result' || r.kind === 'user_text') {
+      agg.s_in_window_bytes += r.bytes;
+    } else {
+      agg.s_out_window_bytes += r.bytes;
+    }
+    uniqueB += r.bytes;
+  }
+  for (const agg of perSession.values()) {
+    const inShare = agg.in_bytes_total > 0 ? agg.s_in_window_bytes / agg.in_bytes_total : 0;
+    const outShare = agg.out_bytes_total > 0 ? agg.s_out_window_bytes / agg.out_bytes_total : 0;
+    inputT += agg.s_input_tokens * inShare;
+    cacheRT += agg.s_cache_read_tokens * inShare;
+    cacheWT += agg.s_cache_write_tokens * inShare;
+    outputT += agg.s_output_tokens * outShare;
+  }
+  const billed = inputT + outputT + cacheRT + cacheWT;
+
+  const sortedRows = [...acc.values()].sort((a, b) => b.est_cost_usd - a.est_cost_usd);
+
+  return {
+    rows: sortedRows,
+    billed_tokens: Math.round(billed),
+    unique_bytes: uniqueB,
+    total_cost_usd: headlineCost,
+    input_tokens: Math.round(inputT),
+    output_tokens: Math.round(outputT),
+    cache_read_tokens: Math.round(cacheRT),
+    cache_write_tokens: Math.round(cacheWT),
+  };
 }
 
 // Per-session assistant-message counts by model family. Useful when Claude

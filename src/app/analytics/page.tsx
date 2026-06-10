@@ -2,11 +2,13 @@ import { PageHeader } from '@/components/PageHeader';
 import { MetricCard } from '@/components/MetricCard';
 import { AnalyticsCharts } from '@/components/AnalyticsCharts';
 import { RangePicker } from '@/components/RangePicker';
+import { TokenBreakdownDetailCard } from '@/components/TokenBreakdownDetailCard';
 import {
   getDailySeries,
   getProviderBreakdown,
   getModelBreakdown,
   getRangeSummary,
+  getTokenBreakdown,
 } from '@/lib/queries';
 import { triggerBackgroundIngest } from '@/lib/ingest/auto';
 import { fmtCost, fmtTokens } from '@/lib/format';
@@ -31,6 +33,7 @@ export default async function AnalyticsPage({
   const providers = getProviderBreakdown();
   const models = getModelBreakdown();
   const summary = getRangeSummary(days);
+  const tokenBreakdown = getTokenBreakdown(days);
 
   return (
     <div>
@@ -52,6 +55,8 @@ export default async function AnalyticsPage({
             hint={`retail · prices ${PRICES_LAST_UPDATED}`}
           />
         </div>
+
+        <TokenBreakdownDetailCard summary={tokenBreakdown} rangeLabel={fullLabel} />
 
         <AnalyticsCharts daily={daily} providers={providers} models={models} label={fullLabel} />
       </div>

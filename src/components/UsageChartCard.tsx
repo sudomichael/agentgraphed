@@ -5,9 +5,10 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { UsageChart } from './SparkChart';
 
 type Point = { day: string; sessions: number; tokens: number; cost: number };
-type Metric = 'tokens' | 'sessions' | 'cost';
+type Metric = 'tokens' | 'sessions' | 'cost' | 'breakdown';
 type Scale = 'lin' | 'log';
 type ChartMode = 'area' | 'bar';
+type BreakdownPoint = { day: string } & Record<string, number | string>;
 
 // When the peak day is >> the quiet days, linear scale flattens everything
 // below the peak into the X-axis baseline. Use p10 (not median) to catch
@@ -16,7 +17,9 @@ type ChartMode = 'area' | 'bar';
 // million is a textbook "show me a log chart" situation, but its median
 // can sit comfortably mid-range and the median-based heuristic stays in lin.
 function suggestLog(data: Point[], metric: Metric): boolean {
-  const values = data.map((d) => d[metric] as number).filter((v) => v > 0);
+  // suggestLog only meaningful for scalar metrics. Breakdown ignores scale.
+  if (metric === 'breakdown') return false;
+  const values = data.map((d) => d[metric as 'tokens' | 'sessions' | 'cost'] as number).filter((v) => v > 0);
   if (values.length < 5) return false;
   const sorted = [...values].sort((a, b) => a - b);
   const peak = sorted[sorted.length - 1];
@@ -30,12 +33,14 @@ export function UsageChartCard({
   metric,
   scale,
   chart,
+  breakdown,
 }: {
   data: Point[];
   label?: string;
   metric: Metric;
   scale: Scale | null;
   chart: ChartMode;
+  breakdown?: { buckets: BreakdownPoint[]; sources: string[] };
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -55,6 +60,7 @@ export function UsageChartCard({
     { id: 'tokens', label: 'Tokens' },
     { id: 'sessions', label: 'Sessions' },
     { id: 'cost', label: 'Est. Cost' },
+    { id: 'breakdown', label: 'Breakdown' },
   ];
 
   const chartTabs: { id: ChartMode; glyph: string; title: string }[] = [
@@ -81,7 +87,7 @@ export function UsageChartCard({
             ))}
           </div>
           <div className="w-px h-4 bg-surface-3" />
-          <div className="flex items-center gap-0.5">
+          <div className={`flex items-center gap-0.5 ${metric === 'breakdown' ? 'opacity-40 pointer-events-none' : ''}`} title={metric === 'breakdown' ? 'Log scale doesn’t compose with stacked breakdown' : undefined}>
             {(['lin', 'log'] as Scale[]).map((s) => (
               <button
                 key={s}
@@ -121,7 +127,7 @@ export function UsageChartCard({
         </div>
       </div>
       <div className="p-4">
-        <UsageChart data={data} metric={metric} scale={activeScale} chart={chart} />
+        <UsageChart data={data} metric={metric} scale={activeScale} chart={chart} breakdown={breakdown} />
       </div>
     </div>
   );

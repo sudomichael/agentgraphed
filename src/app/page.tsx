@@ -10,7 +10,7 @@ import { ShareButton } from '@/components/ShareButton';
 import { ProjectFilter } from '@/components/ProjectFilter';
 import { ModelFilter } from '@/components/ModelFilter';
 import { ModelBreakdownCard } from '@/components/ModelBreakdownCard';
-import { TokenBreakdownCard } from '@/components/TokenBreakdownCard';
+import { CacheHealthStrip } from '@/components/CacheHealthStrip';
 import { ClassifyChip } from '@/components/ClassifyChip';
 import {
   getOverview,
@@ -27,6 +27,7 @@ import {
   getModelBreakdown,
   getModelFamilies,
   getTokenBreakdown,
+  getTokenBreakdownSeries,
 } from '@/lib/queries';
 import { triggerBackgroundIngest, lastIngestedAt } from '@/lib/ingest/auto';
 import { estimateClassifyCost } from '@/lib/llm/classify';
@@ -43,12 +44,13 @@ function pctDelta(cur: number, prev: number): { text: string; positive: boolean 
   return { text: `${sign}${pct.toFixed(0)}% vs prev`, positive: pct >= 0 };
 }
 
-type Metric = 'tokens' | 'sessions' | 'cost';
+type Metric = 'tokens' | 'sessions' | 'cost' | 'breakdown';
 type Scale = 'lin' | 'log';
 type ChartMode = 'area' | 'bar';
 
 function parseMetric(raw: string | undefined): Metric {
-  return raw === 'sessions' || raw === 'cost' ? raw : 'tokens';
+  if (raw === 'sessions' || raw === 'cost' || raw === 'breakdown') return raw;
+  return 'tokens';
 }
 function parseScale(raw: string | undefined): Scale | null {
   return raw === 'lin' || raw === 'log' ? raw : null;
@@ -89,6 +91,9 @@ export default async function DashboardPage({
   const recent = getRecentSessions(8, projectId, modelFamily);
   const daySummary = getDaySummary(dayKey(Date.now()));
   const tokenBreakdown = getTokenBreakdown(days, projectId, modelFamily);
+  const tokenSeries = metric === 'breakdown'
+    ? getTokenBreakdownSeries(days, projectId, modelFamily)
+    : null;
   // Model breakdown is intentionally not filtered by model — it'd always show
   // one bar. We still respect the day window + project filter so the card
   // reflects "what I'm looking at."
@@ -178,13 +183,16 @@ export default async function DashboardPage({
           />
         </div>
 
-        <UsageChartCard data={daily} label={fullLabel} metric={metric} scale={scale} chart={chart} />
-
-        <TokenBreakdownCard
-          rows={tokenBreakdown}
-          title={`Where your tokens went · ${fullLabel}`}
-          scopeLabel="window"
+        <UsageChartCard
+          data={daily}
+          label={fullLabel}
+          metric={metric}
+          scale={scale}
+          chart={chart}
+          breakdown={tokenSeries ?? undefined}
         />
+
+        <CacheHealthStrip summary={tokenBreakdown} />
 
         <div className="grid grid-cols-3 gap-4">
           <div className="card col-span-2">
