@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { setLeaderboardOptInAction } from '@/app/leaderboard/actions';
+import { renameLeaderboardHandleAction, setLeaderboardOptInAction } from '@/app/leaderboard/actions';
 import { detectSocial, SOCIAL_LIMITS } from '@/lib/social';
 
 // Single client component for both opt-in (with handle entry) and the
@@ -48,6 +48,11 @@ export function LeaderboardOptIn({ initialOptIn, initialHandle, initialSocialLin
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [pending, startTransition] = useTransition();
+  // Rename flow runs inside its own transition so the "Save links" /
+  // "Opt out" buttons don't all spin when only the rename input is busy.
+  const [renaming, setRenaming] = useState(false);
+  const [pendingRename, startRename] = useTransition();
+  const [pendingHandle, setPendingHandle] = useState(initialHandle);
   const router = useRouter();
 
   const setSlot = (idx: number, value: string) => {
@@ -149,27 +154,107 @@ export function LeaderboardOptIn({ initialOptIn, initialHandle, initialSocialLin
       </div>
 
       {optIn && (
-        <div className="flex items-center gap-3 flex-wrap">
-          <button
-            type="button"
-            onClick={() => onSubmit(true)}
-            disabled={pending}
-            className="btn btn-primary"
-          >
-            {pending ? 'Saving…' : saved ? '✓ Saved' : 'Save links'}
-          </button>
-          <button
-            type="button"
-            onClick={() => onSubmit(false)}
-            disabled={pending}
-            className="btn"
-          >
-            {pending ? 'Opting out…' : 'Opt out'}
-          </button>
-          <span className="text-[11px] text-ink-mute">
-            Your handle stays saved locally so you can opt back in any time.
-          </span>
-        </div>
+        <>
+          {/* Current handle + Change handle toggle. Sits above the action
+              buttons so the destructive rename UI doesn't share a row with
+              save/opt-out. */}
+          <div className="flex items-center gap-3 flex-wrap text-body-sm">
+            <span className="text-ink-mute">Submitting as</span>
+            <span className="font-mono text-ink">{initialHandle}</span>
+            {!renaming ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setRenaming(true);
+                  setPendingHandle(initialHandle);
+                  setError(null);
+                }}
+                className="text-[12px] text-primary hover:underline"
+              >
+                Change handle
+              </button>
+            ) : (
+              <span className="text-[11px] text-ink-mute">
+                Picking a new handle resets your prior rankings — your old
+                data stays on the leaderboard until you delete it.
+              </span>
+            )}
+          </div>
+          {renaming && (
+            <div className="flex items-stretch gap-2 flex-wrap">
+              <input
+                type="text"
+                value={pendingHandle}
+                onChange={(e) => setPendingHandle(e.target.value)}
+                aria-label="New handle"
+                placeholder="new-handle"
+                className="bg-surface-1 border border-surface-3 rounded px-3 h-9 text-body-sm font-mono flex-1 min-w-[200px] focus:outline-none focus:border-secondary"
+                maxLength={24}
+                spellCheck={false}
+                autoCorrect="off"
+                autoCapitalize="off"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  const trimmed = pendingHandle.trim();
+                  if (!/^[a-z0-9][a-z0-9_-]{1,23}$/i.test(trimmed)) {
+                    setError('Handle must be 2–24 chars: letters, numbers, dash or underscore.');
+                    return;
+                  }
+                  startRename(async () => {
+                    const result = await renameLeaderboardHandleAction({ newHandle: trimmed });
+                    if (!result.ok) {
+                      setError(result.error);
+                      return;
+                    }
+                    setRenaming(false);
+                    router.refresh();
+                  });
+                }}
+                disabled={pendingRename}
+                className="btn btn-primary"
+              >
+                {pendingRename ? 'Renaming…' : 'Rename'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setRenaming(false);
+                  setError(null);
+                  setPendingHandle(initialHandle);
+                }}
+                disabled={pendingRename}
+                className="btn"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={() => onSubmit(true)}
+              disabled={pending}
+              className="btn btn-primary"
+            >
+              {pending ? 'Saving…' : saved ? '✓ Saved' : 'Save links'}
+            </button>
+            <button
+              type="button"
+              onClick={() => onSubmit(false)}
+              disabled={pending}
+              className="btn"
+            >
+              {pending ? 'Opting out…' : 'Opt out'}
+            </button>
+            <span className="text-[11px] text-ink-mute">
+              Your handle stays saved locally so you can opt back in any time.
+            </span>
+          </div>
+        </>
       )}
 
       {!optIn && (

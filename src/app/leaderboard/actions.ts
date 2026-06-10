@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { setSetting, getSessionsForLeaderboard } from '@/lib/queries';
+import { setSetting, getSetting, getSessionsForLeaderboard } from '@/lib/queries';
 import { cleanSocialLinks } from '@/lib/social';
 
 const SUBMIT_ENDPOINT = 'https://agentgraphed.com/api/leaderboard/submit';
@@ -106,5 +106,48 @@ async function submitNow(handle: string, socialLinks: string[]): Promise<{ ok: b
     return null;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+// Change the handle the user submits under. Doesn't touch the old handle's
+// rows on the server — those just stop being updated. The user can run the
+// `my-data DELETE` curl from the privacy section if they want them gone.
+// We immediately submit under the new handle so the leaderboard reflects
+// the rename without waiting for the 6h cadence.
+export async function renameLeaderboardHandleAction(opts: {
+  newHandle: string;
+}): Promise<Result> {
+  try {
+    const trimmed = opts.newHandle.trim();
+    if (!/^[a-z0-9][a-z0-9_-]{1,23}$/i.test(trimmed)) {
+      return { ok: false, error: 'Handle must be 2–24 chars: letters, numbers, dash or underscore.' };
+    }
+    if (getSetting('leaderboard_opt_in') !== 'on') {
+      return { ok: false, error: 'Not opted in — pick a handle from the Join button instead.' };
+    }
+    const old = getSetting('leaderboard_handle') ?? '';
+    if (old === trimmed) {
+      return { ok: true, submitted: false };
+    }
+    setSetting('leaderboard_handle', trimmed);
+
+    // Re-submit under the new handle. Read current social_links straight
+    // from the setting; we don't accept new ones here — that's what the
+    // "Save links" button on the opt-in component is for.
+    const socialLinks = (getSetting('leaderboard_social_links') ?? '')
+      .split('\n').map((s) => s.trim()).filter(Boolean);
+    const submitted = await submitNow(trimmed, socialLinks).catch(() => null);
+    if (submitted && submitted.ok) {
+      setSetting('leaderboard_last_submitted_ms', String(Date.now()));
+    }
+    revalidatePath('/leaderboard');
+    return {
+      ok: true,
+      submitted: !!submitted?.ok,
+      serverStatus: submitted?.status,
+      rowsWritten: submitted?.rowsWritten,
+    };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message || 'Unknown error' };
   }
 }
