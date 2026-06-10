@@ -1,8 +1,13 @@
 // Shared range options for Dashboard + Analytics pages.
+//
+// `days` is the size of the rolling window in days (1 = last 24h, 7 = last
+// week, etc.). null means "all time." This is the value every query in
+// queries.ts windows on: `timestamp >= Date.now() - days * 86_400_000`.
 
-export type RangeKey = '7d' | '30d' | '90d' | 'all';
+export type RangeKey = '24h' | '7d' | '30d' | '90d' | 'all';
 
 export const RANGE_OPTIONS: { key: RangeKey; label: string; days: number | null }[] = [
+  { key: '24h', label: 'Last 24 hours', days: 1 },
   { key: '7d', label: 'Last 7 days', days: 7 },
   { key: '30d', label: 'Last 30 days', days: 30 },
   { key: '90d', label: 'Last 90 days', days: 90 },

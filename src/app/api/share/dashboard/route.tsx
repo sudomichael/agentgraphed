@@ -26,6 +26,7 @@ type Point = { day: string; sessions: number; tokens: number; cost: number };
 
 function rangeLabel(days: number | null): string {
   if (days === null) return 'all-time';
+  if (days === 1) return 'last 24h';
   if (days === 7) return 'last 7 days';
   if (days === 30) return 'last 30 days';
   if (days === 90) return 'last 90 days';

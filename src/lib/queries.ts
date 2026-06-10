@@ -329,7 +329,12 @@ function _getDailySeries(days: number | null, projectId: string | null, modelFam
     bucketDays = Math.max(1, Math.ceil((Date.now() - since) / 86_400_000) + 1);
   } else {
     since = Date.now() - days * 86_400_000;
-    bucketDays = days;
+    // A rolling Nd window crosses N midnights, which is N+1 calendar-day
+    // buckets. Without the +1, messages from "yesterday evening but within
+    // the last 24h" land in yesterday's dayKey and get dropped because the
+    // map only has today's bucket. The visible side effect is most obvious
+    // on `days=1` (the 24h preset).
+    bucketDays = days + 1;
   }
   // Pull one row per message in range, bucket by the day each message landed
   // on. "Sessions" per day = distinct session_ids that touched that day.
