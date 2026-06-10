@@ -7,6 +7,7 @@
 import { NextRequest } from 'next/server';
 import { probeClaudeQuota } from '@/lib/quota/probe';
 import { probeCodexQuota } from '@/lib/quota/codex';
+import { probeOpencodeQuota } from '@/lib/quota/opencode';
 import { getSqlite } from '@/lib/db/client';
 
 export const runtime = 'nodejs';
@@ -22,13 +23,15 @@ type Snapshot = {
 
 export async function POST(req: NextRequest) {
   const provider = (req.nextUrl.searchParams.get('provider') ?? 'claude').toLowerCase();
-  if (provider !== 'claude' && provider !== 'codex') {
+  if (provider !== 'claude' && provider !== 'codex' && provider !== 'opencode') {
     return new Response(JSON.stringify({ ok: false, error: `Unknown provider: ${provider}` }), {
       status: 400, headers: { 'content-type': 'application/json' },
     });
   }
 
-  const result = provider === 'claude' ? await probeClaudeQuota() : await probeCodexQuota();
+  const result = provider === 'claude' ? await probeClaudeQuota()
+    : provider === 'opencode' ? await probeOpencodeQuota()
+    : await probeCodexQuota();
   if (!result.ok) {
     return new Response(JSON.stringify({ ok: false, provider, error: result.error, httpStatus: result.httpStatus }), {
       status: 200,
@@ -48,7 +51,7 @@ export async function POST(req: NextRequest) {
     result.observedAt,
     result.planType,
     result.primary ? Math.round(result.primary.utilization * 1000) / 10 : null,
-    result.primary ? (provider === 'claude' ? 300 : 1) : null,
+    result.primary ? (provider === 'claude' ? 300 : provider === 'opencode' ? 300 : 1) : null,
     result.primary ? result.primary.resetsAt : null,
     result.secondary ? Math.round(result.secondary.utilization * 1000) / 10 : null,
     result.secondary ? 7 * 24 * 60 : null,

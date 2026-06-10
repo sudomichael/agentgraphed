@@ -1,11 +1,13 @@
 import { ingestClaude } from './claude';
 import { ingestCodex } from './codex';
+import { ingestOpencode } from './opencode';
 import { recostAllSessions } from './recost';
 import { getDb, getSqlite } from '../db/client';
 
 export type FullIngestResult = {
   claude: Awaited<ReturnType<typeof ingestClaude>>;
   codex: Awaited<ReturnType<typeof ingestCodex>>;
+  opencode: Awaited<ReturnType<typeof ingestOpencode>>;
   durationMs: number;
 };
 
@@ -14,6 +16,7 @@ export async function runIngest(opts: { onProgress?: (msg: string) => void } = {
   const t0 = Date.now();
   const claude = await ingestClaude(opts);
   const codex = await ingestCodex(opts);
+  const opencode = await ingestOpencode(opts);
 
   // If pricing data has been refreshed since we last recosted, rerun cost
   // estimation on existing sessions so the dashboard reflects current prices.
@@ -38,7 +41,7 @@ export async function runIngest(opts: { onProgress?: (msg: string) => void } = {
     // recost is a best-effort optimization; ignore failures
   }
 
-  return { claude, codex, durationMs: Date.now() - t0 };
+  return { claude, codex, opencode, durationMs: Date.now() - t0 };
 }
 
 if (require.main === module) {

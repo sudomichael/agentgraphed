@@ -28,6 +28,7 @@ const SECONDARY = '#00ffab';
 const PROVIDER_COLORS: Record<string, string> = {
   claude: '#00f5ff',
   codex: '#00ffab',
+  opencode: '#ff6bcb',
   unknown: '#6E7681',
 };
 

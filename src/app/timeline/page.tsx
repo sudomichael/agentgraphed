@@ -55,6 +55,7 @@ export default async function TimelinePage({
           <option value="">All providers</option>
           <option value="claude">Claude</option>
           <option value="codex">Codex</option>
+          <option value="opencode">OpenCode</option>
         </select>
         <button type="submit" className="btn">
           Filter

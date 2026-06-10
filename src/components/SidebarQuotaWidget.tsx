@@ -14,7 +14,7 @@ import { createPortal } from 'react-dom';
 // 5-20 hovers a day = a few thousandths of a cent.
 
 type ProviderKpi = {
-  provider: 'claude' | 'codex';
+  provider: 'claude' | 'codex' | 'opencode';
   ok: boolean;
   observedAt: number;
   planType: string | null;
@@ -26,6 +26,7 @@ type ProviderKpi = {
 type State = {
   claude: ProviderKpi | null;
   codex: ProviderKpi | null;
+  opencode: ProviderKpi | null;
   fetchedAt: number;          // 0 = never probed
   loading: boolean;
 };
@@ -42,7 +43,7 @@ function bindingPct(kpi: ProviderKpi | null): number | null {
 
 function dotColor(state: State): string {
   if (state.fetchedAt === 0) return 'bg-ink-mute';   // idle (never probed)
-  const peak = Math.max(bindingPct(state.claude) ?? 0, bindingPct(state.codex) ?? 0);
+  const peak = Math.max(bindingPct(state.claude) ?? 0, bindingPct(state.codex) ?? 0, bindingPct(state.opencode) ?? 0);
   if (peak >= 95) return 'bg-error';
   if (peak >= 80) return 'bg-secondary';             // close to limit
   return 'bg-primary';                                // healthy
@@ -70,11 +71,15 @@ function headlineLabel(state: State): string {
   if (c !== null && state.claude?.primary) {
     return `Claude ${Math.round(c)}% · ${fmtRelative(state.claude.primary.resetsAt)}`;
   }
+  const o = bindingPct(state.opencode);
+  if (o !== null && state.opencode?.primary) {
+    return `Go ${Math.round(o)}% · ${fmtRelative(state.opencode.primary.resetsAt)}`;
+  }
   return 'Live quota';
 }
 
 export function SidebarQuotaWidget() {
-  const [state, setState] = useState<State>({ claude: null, codex: null, fetchedAt: 0, loading: false });
+  const [state, setState] = useState<State>({ claude: null, codex: null, opencode: null, fetchedAt: 0, loading: false });
   const [open, setOpen] = useState(false);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const triggerRef = useRef<HTMLDivElement | null>(null);
@@ -96,15 +101,17 @@ export function SidebarQuotaWidget() {
     };
   }, [open]);
 
-  const fetchBoth = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     setState((s) => ({ ...s, loading: true }));
-    const [claudeResp, codexResp] = await Promise.all([
+    const [claudeResp, codexResp, opencodeResp] = await Promise.all([
       fetch('/api/quota-probe?provider=claude', { method: 'POST' }).then((r) => r.json()).catch((e) => ({ ok: false, error: e.message })),
       fetch('/api/quota-probe?provider=codex',  { method: 'POST' }).then((r) => r.json()).catch((e) => ({ ok: false, error: e.message })),
+      fetch('/api/quota-probe?provider=opencode', { method: 'POST' }).then((r) => r.json()).catch((e) => ({ ok: false, error: e.message })),
     ]);
     setState({
       claude: parseProbeResponse('claude', claudeResp),
       codex:  parseProbeResponse('codex',  codexResp),
+      opencode: parseProbeResponse('opencode', opencodeResp),
       fetchedAt: Date.now(),
       loading: false,
     });
@@ -115,7 +122,7 @@ export function SidebarQuotaWidget() {
     setOpen(true);
     // Refresh if cache is stale (or never fetched).
     if (Date.now() - state.fetchedAt > CACHE_MS && !state.loading) {
-      fetchBoth();
+      fetchAll();
     }
   }
 
@@ -136,7 +143,7 @@ export function SidebarQuotaWidget() {
     >
       <button
         type="button"
-        onClick={fetchBoth}
+        onClick={fetchAll}
         className="w-full flex items-center gap-2 text-[12px] text-ink-dim hover:text-ink"
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -194,12 +201,14 @@ function Popover({
       style={popoverStyle}
     >
       {loading && state.fetchedAt === 0 ? (
-        <div className="text-body-sm text-ink-mute">Probing Anthropic & OpenAI…</div>
+        <div className="text-body-sm text-ink-mute">Probing providers…</div>
       ) : (
         <>
           <ProviderBlock kpi={state.claude} />
           <div className="border-t border-surface-2" />
           <ProviderBlock kpi={state.codex} />
+          <div className="border-t border-surface-2" />
+          <ProviderBlock kpi={state.opencode} />
           <div className="text-[10px] text-ink-mute font-mono tabular pt-1 border-t border-surface-2">
             {state.fetchedAt === 0
               ? 'never probed'
@@ -215,7 +224,7 @@ function ProviderBlock({ kpi }: { kpi: ProviderKpi | null }) {
   if (!kpi) {
     return <div className="text-body-sm text-ink-mute">No data.</div>;
   }
-  const label = kpi.provider === 'claude' ? 'Claude' : 'Codex';
+  const label = kpi.provider === 'claude' ? 'Claude' : kpi.provider === 'codex' ? 'Codex' : 'OpenCode Go';
   return (
     <div className="space-y-2">
       <div className="flex items-baseline justify-between">
@@ -278,7 +287,7 @@ type ProbeResponseShape =
     }
   | { ok: false; error: string };
 
-function parseProbeResponse(provider: 'claude' | 'codex', body: ProbeResponseShape): ProviderKpi {
+function parseProbeResponse(provider: 'claude' | 'codex' | 'opencode', body: ProbeResponseShape): ProviderKpi {
   if (!body || !('ok' in body)) {
     return { provider, ok: false, observedAt: Date.now(), planType: null, primary: null, secondary: null, error: 'unexpected response' };
   }
@@ -291,7 +300,7 @@ function parseProbeResponse(provider: 'claude' | 'codex', body: ProbeResponseSha
     ok: true,
     observedAt: s.observedAt,
     planType: s.planType,
-    primary: s.primary ? { pct: s.primary.pct, resetsAt: s.primary.resetsAt, label: provider === 'claude' ? '5h' : '1m' } : null,
+    primary: s.primary ? { pct: s.primary.pct, resetsAt: s.primary.resetsAt, label: provider === 'claude' ? '5h' : provider === 'opencode' ? '5h' : '1m' } : null,
     secondary: s.secondary ? { pct: s.secondary.pct, resetsAt: s.secondary.resetsAt, label: '7d' } : null,
   };
 }

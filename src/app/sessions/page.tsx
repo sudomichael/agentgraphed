@@ -28,6 +28,7 @@ export default async function SessionsPage({
           <option value="">All providers</option>
           <option value="claude">Claude</option>
           <option value="codex">Codex</option>
+          <option value="opencode">OpenCode</option>
         </select>
         <select
           name="project"
