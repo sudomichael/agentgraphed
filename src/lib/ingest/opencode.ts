@@ -63,25 +63,92 @@ function parseModelId(raw: string | null): string | null {
   }
 }
 
-function getMessageContent(msgData: MessageData): string {
+// Build message content from the message's data field (old path) or from the
+// opencode `part` table. The `message` table stores only metadata; the actual
+// text/tool/results live in the `part` table, keyed by message_id.
+type PartRow = {
+  id: string;
+  message_id: string;
+  data: string;
+};
+
+type PartData = {
+  type?: string;
+  text?: string;
+  tool?: string;
+  callID?: string;
+  state?: { status?: string; input?: unknown; output?: string };
+  reason?: string;
+};
+
+function assembleContentFromParts(parts: PartRow[]): string | null {
+  if (parts.length === 0) return null;
+  // Order by time_created isn't in the SELECT but data is reliable enough.
+  const texts: string[] = [];
+  const toolSummary: string[] = [];
+  for (const p of parts) {
+    let pd: PartData;
+    try { pd = JSON.parse(p.data); } catch { continue; }
+    switch (pd.type) {
+      case 'text':
+        if (pd.text) texts.push(pd.text);
+        break;
+      case 'tool':
+        if (pd.tool) {
+          const summary = pd.state?.output
+            ? `${pd.tool} (${pd.state.output.length} chars)`
+            : pd.tool;
+          toolSummary.push(summary);
+        }
+        break;
+    }
+  }
+  if (texts.length === 0 && toolSummary.length === 0) return null;
+  let result = texts.join('\n\n');
+  if (toolSummary.length > 0) {
+    const toolLine = `[Tools: ${toolSummary.join(', ')}]`;
+    result = result ? `${result}\n\n${toolLine}` : toolLine;
+  }
+  return result.trim();
+}
+
+function getMessageContent(msgData: MessageData, parts: PartRow[] = []): string {
+  // Try parts first — they have the real content.
+  const fromParts = assembleContentFromParts(parts);
+  if (fromParts) return fromParts;
+
   if (msgData.text) return msgData.text;
   if (typeof msgData.content === 'string') return msgData.content;
   if (Array.isArray(msgData.content)) {
-    return msgData.content
-      .map((c: unknown) => {
-        if (typeof c === 'string') return c;
-        if (c && typeof c === 'object') {
-          const o = c as { type?: string; text?: string };
-          if (o.type === 'text' && o.text) return o.text;
+    const textParts: string[] = [];
+    for (const c of msgData.content) {
+      if (typeof c === 'string') { textParts.push(c); continue; }
+      if (c && typeof c === 'object') {
+        const o = c as { type?: string; text?: string; content?: unknown };
+        if (o.type === 'text' && o.text) textParts.push(o.text);
+        if (o.type === 'tool_result' && o.content) {
+          if (typeof o.content === 'string') textParts.push(o.content);
+          else if (Array.isArray(o.content)) {
+            for (const sub of o.content) {
+              if (typeof sub === 'string') textParts.push(sub);
+              else if (sub && typeof sub === 'object' && (sub as { text?: string }).text) textParts.push((sub as { text: string }).text);
+            }
+          }
         }
-        return '';
-      })
-      .join('\n')
-      .trim();
+      }
+    }
+    if (textParts.length > 0) return textParts.join('\n').trim();
+
+    const toolNames: string[] = [];
+    for (const c of msgData.content) {
+      if (c && typeof c === 'object') {
+        const o = c as { type?: string; name?: string };
+        if (o.type === 'tool_use' && typeof o.name === 'string') toolNames.push(o.name);
+      }
+    }
+    if (toolNames.length > 0) return `[Tool calls: ${toolNames.join(', ')}]`;
   }
 
-  // OpenCode stores message metadata without full content in its local DB.
-  // Generate a descriptive placeholder so conversations aren't empty bubbles.
   if (msgData.role === 'assistant') {
     const parts: string[] = [];
     if (msgData.finish === 'tool-calls') parts.push('tool calls');
@@ -185,6 +252,26 @@ export async function ingestOpencode(opts: { onProgress?: (msg: string) => void 
         )
         .all(sess.id) as OpenCodeMessage[];
 
+      // Fetch parts — they contain the actual text/tool content.
+      const messageIds = rawMessages.map((r) => r.id);
+      const partMap = new Map<string, PartRow[]>();
+      if (messageIds.length > 0) {
+        const placeholders = messageIds.map(() => '?').join(',');
+        const allParts = ocDb
+          .prepare(
+            `SELECT id, message_id, data
+             FROM part
+             WHERE message_id IN (${placeholders})
+             ORDER BY time_created ASC`,
+          )
+          .all(...messageIds) as PartRow[];
+        for (const p of allParts) {
+          const list = partMap.get(p.message_id);
+          if (list) list.push(p);
+          else partMap.set(p.message_id, [p]);
+        }
+      }
+
       for (const raw of rawMessages) {
         let msgData: MessageData = {};
         try {
@@ -193,7 +280,8 @@ export async function ingestOpencode(opts: { onProgress?: (msg: string) => void 
           continue;
         }
         const role = msgData.role || 'assistant';
-        const content = getMessageContent(msgData);
+        const parts = partMap.get(raw.id) ?? [];
+        const content = getMessageContent(msgData, parts);
         const msgModelId = msgData.modelID || modelId;
         const msgProviderId = msgData.providerID || null;
         const fullModelId = msgProviderId === 'opencode-go' ? `opencode-go/${msgModelId}` : msgModelId;
