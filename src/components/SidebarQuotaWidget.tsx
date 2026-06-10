@@ -20,6 +20,7 @@ type ProviderKpi = {
   planType: string | null;
   primary: { pct: number; resetsAt: number; label: string } | null;
   secondary: { pct: number; resetsAt: number; label: string } | null;
+  extra?: { pct: number; resetsAt: number; label: string }[];
   error?: string;
 };
 
@@ -65,15 +66,19 @@ function fmtRelative(ts: number): string {
   return m === 0 ? `${h}h` : `${h}h${m}m`;
 }
 
+function fmtPct(v: number): string {
+  return v < 1 ? v.toFixed(1) : Math.round(v).toString();
+}
+
 function headlineLabel(state: State): string {
   if (state.fetchedAt === 0) return 'Live quota';
   const c = bindingPct(state.claude);
   if (c !== null && state.claude?.primary) {
-    return `Claude ${Math.round(c)}% · ${fmtRelative(state.claude.primary.resetsAt)}`;
+    return `Claude ${fmtPct(c)}% · ${fmtRelative(state.claude.primary.resetsAt)}`;
   }
   const o = bindingPct(state.opencode);
   if (o !== null && state.opencode?.primary) {
-    return `Go ${Math.round(o)}% · ${fmtRelative(state.opencode.primary.resetsAt)}`;
+    return `Go ${fmtPct(o)}% · ${fmtRelative(state.opencode.primary.resetsAt)}`;
   }
   return 'Live quota';
 }
@@ -241,8 +246,11 @@ function ProviderBlock({ kpi }: { kpi: ProviderKpi | null }) {
           {kpi.secondary && (
             <PopoverRow label={kpi.secondary.label} pct={kpi.secondary.pct} resetsAt={kpi.secondary.resetsAt} accent="secondary" />
           )}
-          {!kpi.primary && !kpi.secondary && (
-            <div className="text-body-sm text-ink-mute">No rate-limit headers returned.</div>
+          {kpi.extra?.map((row, i) => (
+            <PopoverRow key={i} label={row.label} pct={row.pct} resetsAt={row.resetsAt} accent="secondary" />
+          ))}
+          {!kpi.primary && !kpi.secondary && (!kpi.extra || kpi.extra.length === 0) && (
+            <div className="text-body-sm text-ink-mute">{kpi.provider === 'opencode' ? 'No usage data in local DB.' : 'No rate-limit headers returned.'}</div>
           )}
         </>
       ) : (
@@ -260,7 +268,7 @@ function PopoverRow({
     <div>
       <div className="flex items-baseline justify-between text-body-sm">
         <span className="text-ink font-mono uppercase tracking-wider text-[10px]">{label}</span>
-        <span className="font-mono tabular text-ink">{Math.round(pct)}%</span>
+        <span className="font-mono tabular text-ink">{pct < 1 ? pct.toFixed(1) : Math.round(pct)}%</span>
       </div>
       <div className="h-1 bg-surface-2 rounded-full overflow-hidden mt-1">
         <div className={`h-full ${color}`} style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
@@ -283,6 +291,7 @@ type ProbeResponseShape =
         planType: string | null;
         primary: { pct: number; resetsAt: number; status: string | null } | null;
         secondary: { pct: number; resetsAt: number; status: string | null } | null;
+        monthly: { pct: number; resetsAt: number; status: string | null } | null;
       };
     }
   | { ok: false; error: string };
@@ -295,6 +304,10 @@ function parseProbeResponse(provider: 'claude' | 'codex' | 'opencode', body: Pro
     return { provider, ok: false, observedAt: Date.now(), planType: null, primary: null, secondary: null, error: body.error };
   }
   const s = body.snapshot;
+  const extra: { pct: number; resetsAt: number; label: string }[] = [];
+  if (provider === 'opencode' && s.monthly) {
+    extra.push({ pct: s.monthly.pct, resetsAt: s.monthly.resetsAt, label: '30d' });
+  }
   return {
     provider,
     ok: true,
@@ -302,6 +315,7 @@ function parseProbeResponse(provider: 'claude' | 'codex' | 'opencode', body: Pro
     planType: s.planType,
     primary: s.primary ? { pct: s.primary.pct, resetsAt: s.primary.resetsAt, label: provider === 'claude' ? '5h' : provider === 'opencode' ? '5h' : '1m' } : null,
     secondary: s.secondary ? { pct: s.secondary.pct, resetsAt: s.secondary.resetsAt, label: '7d' } : null,
+    extra: extra.length > 0 ? extra : undefined,
   };
 }
 

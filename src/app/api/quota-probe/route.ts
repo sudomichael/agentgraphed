@@ -8,6 +8,7 @@ import { NextRequest } from 'next/server';
 import { probeClaudeQuota } from '@/lib/quota/probe';
 import { probeCodexQuota } from '@/lib/quota/codex';
 import { probeOpencodeQuota } from '@/lib/quota/opencode';
+import type { OpencodeProbeResult } from '@/lib/quota/opencode';
 import { getSqlite } from '@/lib/db/client';
 
 export const runtime = 'nodejs';
@@ -18,6 +19,7 @@ type Snapshot = {
   planType: string | null;
   primary: { pct: number; resetsAt: number; status: string | null } | null;
   secondary: { pct: number; resetsAt: number; status: string | null } | null;
+  monthly: { pct: number; resetsAt: number; status: string | null } | null;
   tokenWasRefreshed: boolean;
 };
 
@@ -58,6 +60,9 @@ export async function POST(req: NextRequest) {
     result.secondary ? result.secondary.resetsAt : null,
   );
 
+  const monthlyData = provider === 'opencode'
+    ? (result as Extract<OpencodeProbeResult, { ok: true }>).monthly
+    : null;
   const snapshot: Snapshot = {
     observedAt: result.observedAt,
     planType: result.planType,
@@ -66,6 +71,9 @@ export async function POST(req: NextRequest) {
       : null,
     secondary: result.secondary
       ? { pct: result.secondary.utilization * 100, resetsAt: result.secondary.resetsAt, status: result.secondary.status }
+      : null,
+    monthly: monthlyData
+      ? { pct: monthlyData.utilization * 100, resetsAt: monthlyData.resetsAt, status: monthlyData.status }
       : null,
     tokenWasRefreshed: result.tokenWasRefreshed,
   };
