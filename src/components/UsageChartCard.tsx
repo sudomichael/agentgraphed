@@ -7,6 +7,7 @@ import { UsageChart } from './SparkChart';
 type Point = { day: string; sessions: number; tokens: number; cost: number };
 type Metric = 'tokens' | 'sessions' | 'cost';
 type Scale = 'lin' | 'log';
+type ChartMode = 'area' | 'bar';
 
 // When the peak day is >> the quiet days, linear scale flattens everything
 // below the peak into the X-axis baseline. Use p10 (not median) to catch
@@ -28,11 +29,13 @@ export function UsageChartCard({
   label = 'last 30 days',
   metric,
   scale,
+  chart,
 }: {
   data: Point[];
   label?: string;
   metric: Metric;
   scale: Scale | null;
+  chart: ChartMode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -40,7 +43,7 @@ export function UsageChartCard({
   const recommended = useMemo<Scale>(() => (suggestLog(data, metric) ? 'log' : 'lin'), [data, metric]);
   const activeScale: Scale = scale ?? recommended;
 
-  const setParam = (key: 'metric' | 'scale', value: string | null, defaultValue: string) => {
+  const setParam = (key: 'metric' | 'scale' | 'chart', value: string | null, defaultValue: string) => {
     const params = new URLSearchParams(sp.toString());
     if (value === null || value === defaultValue) params.delete(key);
     else params.set(key, value);
@@ -48,10 +51,15 @@ export function UsageChartCard({
     router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
-  const tabs: { id: Metric; label: string }[] = [
+  const metricTabs: { id: Metric; label: string }[] = [
     { id: 'tokens', label: 'Tokens' },
     { id: 'sessions', label: 'Sessions' },
     { id: 'cost', label: 'Est. Cost' },
+  ];
+
+  const chartTabs: { id: ChartMode; glyph: string; title: string }[] = [
+    { id: 'area', glyph: '◠', title: 'Area chart' },
+    { id: 'bar', glyph: '▮', title: 'Bar chart' },
   ];
 
   return (
@@ -60,7 +68,7 @@ export function UsageChartCard({
         <span>Usage — {label}</span>
         <div className="flex items-center gap-3 normal-case tracking-normal">
           <div className="flex items-center gap-0.5">
-            {tabs.map((t) => (
+            {metricTabs.map((t) => (
               <button
                 key={t.id}
                 onClick={() => setParam('metric', t.id, 'tokens')}
@@ -94,10 +102,26 @@ export function UsageChartCard({
               </button>
             ))}
           </div>
+          <div className="w-px h-4 bg-surface-3" />
+          <div className="flex items-center gap-0.5">
+            {chartTabs.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setParam('chart', t.id, 'area')}
+                className={`px-1.5 py-0.5 text-[11px] rounded transition-colors font-mono ${
+                  chart === t.id ? 'bg-primary/15 text-primary' : 'text-ink-mute hover:text-ink-dim'
+                }`}
+                title={t.title}
+                aria-label={t.title}
+              >
+                {t.glyph}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       <div className="p-4">
-        <UsageChart data={data} metric={metric} scale={activeScale} />
+        <UsageChart data={data} metric={metric} scale={activeScale} chart={chart} />
       </div>
     </div>
   );

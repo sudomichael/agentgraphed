@@ -22,6 +22,7 @@ const SECONDARY = '#00ffab';
 
 type Metric = 'tokens' | 'sessions' | 'cost';
 type Scale = 'lin' | 'log';
+type ChartMode = 'area' | 'bar';
 type Point = { day: string; sessions: number; tokens: number; cost: number };
 
 function rangeLabel(days: number | null): string {
@@ -47,8 +48,12 @@ function fmtY(value: number, m: Metric): string {
 // still has nonzero height instead of vanishing.
 const LOG_FLOOR = 1;
 
-function buildPath(points: Point[], metric: Metric, scale: Scale, x: number, y: number, w: number, h: number) {
-  if (points.length === 0) return { area: '', line: '', gridLines: [] as { y: number; label: string }[] };
+type Bar = { x: number; y: number; w: number; h: number };
+
+function buildChart(points: Point[], metric: Metric, scale: Scale, mode: ChartMode, x: number, y: number, w: number, h: number) {
+  if (points.length === 0) {
+    return { area: '', line: '', bars: [] as Bar[], gridLines: [] as { y: number; label: string }[] };
+  }
 
   const raw = points.map((p) => p[metric] as number);
   const transform = (v: number) => {
@@ -66,14 +71,34 @@ function buildPath(points: Point[], metric: Metric, scale: Scale, x: number, y: 
   const xAt = (i: number) => x + (points.length === 1 ? w / 2 : (i / (points.length - 1)) * w);
   const yAt = (v: number) => y + h - ((v - min) / range) * h;
 
+  // Path mode (area + line)
   let line = '';
   let area = '';
-  for (let i = 0; i < points.length; i++) {
-    const px = xAt(i);
-    const py = yAt(values[i]);
-    line += (i === 0 ? 'M' : 'L') + ` ${px.toFixed(2)} ${py.toFixed(2)} `;
+  if (mode === 'area') {
+    for (let i = 0; i < points.length; i++) {
+      const px = xAt(i);
+      const py = yAt(values[i]);
+      line += (i === 0 ? 'M' : 'L') + ` ${px.toFixed(2)} ${py.toFixed(2)} `;
+    }
+    area = line + `L ${xAt(points.length - 1).toFixed(2)} ${(y + h).toFixed(2)} L ${xAt(0).toFixed(2)} ${(y + h).toFixed(2)} Z`;
   }
-  area = line + `L ${xAt(points.length - 1).toFixed(2)} ${(y + h).toFixed(2)} L ${xAt(0).toFixed(2)} ${(y + h).toFixed(2)} Z`;
+
+  // Bar mode: width per bucket = (chartWidth - gap*(n-1)) / n with a small gap.
+  const bars: Bar[] = [];
+  if (mode === 'bar') {
+    const n = points.length;
+    const gapPct = n > 60 ? 0.1 : n > 20 ? 0.2 : 0.3;
+    const bucketW = w / n;
+    const barW = Math.max(1, bucketW * (1 - gapPct));
+    for (let i = 0; i < n; i++) {
+      const cx = x + bucketW * (i + 0.5);
+      const top = yAt(values[i]);
+      // For zero values in lin mode, top == y+h, so the bar has zero height.
+      // That's fine — Recharts does the same. Log mode floors to LOG_FLOOR.
+      const barH = Math.max(0, y + h - top);
+      bars.push({ x: cx - barW / 2, y: top, w: barW, h: barH });
+    }
+  }
 
   // 3 gridline labels: max, mid, base
   const gridLines = [0.5, 0].map((frac) => {
@@ -83,7 +108,7 @@ function buildPath(points: Point[], metric: Metric, scale: Scale, x: number, y: 
   });
   gridLines.unshift({ y: y, label: fmtY(scale === 'log' ? Math.pow(10, max) : max, metric) });
 
-  return { area, line, gridLines };
+  return { area, line, bars, gridLines };
 }
 
 export async function GET(req: Request) {
@@ -95,6 +120,8 @@ export async function GET(req: Request) {
     metricParam === 'sessions' || metricParam === 'cost' ? metricParam : 'tokens';
   const scaleParam = url.searchParams.get('scale');
   const scale: Scale = scaleParam === 'log' ? 'log' : 'lin';
+  const chartParam = url.searchParams.get('chart');
+  const chartMode: ChartMode = chartParam === 'bar' ? 'bar' : 'area';
   const projectId = url.searchParams.get('project');
   const project = projectId ? getProject(projectId) : null;
   const modelFamily = url.searchParams.get('model');
@@ -114,15 +141,20 @@ export async function GET(req: Request) {
   const innerW = CHART_W - PAD_L - PAD_R;
   const innerH = CHART_H - PAD_T - PAD_B;
 
-  const { area, line, gridLines } = buildPath(daily, metric, scale, PAD_L, PAD_T, innerW, innerH);
+  const { area, line, bars, gridLines } = buildChart(daily, metric, scale, chartMode, PAD_L, PAD_T, innerW, innerH);
 
-  // X-axis labels: first, middle, last day (compact MM-DD).
+  // Day key carries `YYYY-MM-DD` (daily) or `YYYY-MM-DD HH:00` (hourly).
+  // Slice differently so the X-axis shows `HH:00` when zoomed into a day.
+  const hourly = daily.length > 0 && daily[0].day.length > 10;
+  const xLabelOf = (day: string) => (hourly ? day.slice(11, 16) : day.slice(5));
+
+  // X-axis labels: first, middle, last bucket (compact).
   const xLabels: { x: number; label: string }[] = [];
   if (daily.length > 0) {
     const indices = daily.length === 1 ? [0] : [0, Math.floor(daily.length / 2), daily.length - 1];
     for (const i of indices) {
       const px = PAD_L + (daily.length === 1 ? innerW / 2 : (i / (daily.length - 1)) * innerW);
-      xLabels.push({ x: px, label: daily[i].day.slice(5) });
+      xLabels.push({ x: px, label: xLabelOf(daily[i].day) });
     }
   }
 
@@ -146,7 +178,7 @@ export async function GET(req: Request) {
           <div style={{
             marginLeft: 14, color: INK_MUTE, fontSize: 13, letterSpacing: 1.5,
             textTransform: 'uppercase', display: 'flex',
-          }}>{metricLabel(metric)} · {rangeLabel(days)}{scale === 'log' ? ' · log' : ''}{project ? ` · ${project.name}` : ''}{modelFamily ? ` · ${modelFamily}` : ''}</div>
+          }}>{metricLabel(metric)} · {rangeLabel(days)}{scale === 'log' ? ' · log' : ''}{chartMode === 'bar' ? ' · bar' : ''}{project ? ` · ${project.name}` : ''}{modelFamily ? ` · ${modelFamily}` : ''}</div>
         </div>
 
         {/* Headline metrics row */}
@@ -182,8 +214,18 @@ export async function GET(req: Request) {
                   <text x={PAD_L - 8} y={g.y + 4} fill={INK_MUTE} fontSize="12" fontFamily="monospace" textAnchor="end">{g.label}</text>
                 </g>
               ))}
-              <path d={area} fill="url(#grad)" />
-              <path d={line} fill="none" stroke={color} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+              {chartMode === 'area' ? (
+                <>
+                  <path d={area} fill="url(#grad)" />
+                  <path d={line} fill="none" stroke={color} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+                </>
+              ) : (
+                <>
+                  {bars.map((b, i) => (
+                    <rect key={i} x={b.x} y={b.y} width={b.w} height={b.h} fill={color} rx={2} />
+                  ))}
+                </>
+              )}
               {xLabels.map((l, i) => (
                 <text key={i} x={l.x} y={CHART_H - 4} fill={INK_MUTE} fontSize="12" fontFamily="monospace" textAnchor={i === 0 ? 'start' : i === xLabels.length - 1 ? 'end' : 'middle'}>{l.label}</text>
               ))}

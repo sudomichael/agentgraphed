@@ -310,13 +310,23 @@ export function getDailySeries(
   );
 }
 
+// Bucket granularity follows window size. Sub-2-day windows get hourly
+// buckets ("when did I spend tokens today"); everything else stays daily.
+// The point's `day` field carries `YYYY-MM-DD` for daily mode and
+// `YYYY-MM-DD HH:00` for hourly — both sort naturally and the chart's
+// label formatter discriminates on string length.
 function _getDailySeries(days: number | null, projectId: string | null, modelFamily: string | null): DailyPoint[] {
   const db = getSqlite();
-  let since: number;
-  let bucketDays: number;
   const projClause = projectId ? ' AND s.project_id = ?' : '';
   const projParam: unknown[] = projectId ? [projectId] : [];
   const mc = modelClause(modelFamily, 's');
+
+  const hourly = days !== null && days < 2;
+  const bucketMs = hourly ? 3_600_000 : 86_400_000;
+
+  // Compute the window start and how many buckets to seed.
+  let since: number;
+  let bucketCount: number;
   if (days === null) {
     const earliest = db
       .prepare(
@@ -326,18 +336,15 @@ function _getDailySeries(days: number | null, projectId: string | null, modelFam
       .get(...projParam, ...mc.params) as { min: number | null };
     if (!earliest.min) return [];
     since = earliest.min;
-    bucketDays = Math.max(1, Math.ceil((Date.now() - since) / 86_400_000) + 1);
+    bucketCount = Math.max(1, Math.ceil((Date.now() - since) / bucketMs) + 1);
   } else {
     since = Date.now() - days * 86_400_000;
-    // A rolling Nd window crosses N midnights, which is N+1 calendar-day
-    // buckets. Without the +1, messages from "yesterday evening but within
-    // the last 24h" land in yesterday's dayKey and get dropped because the
-    // map only has today's bucket. The visible side effect is most obvious
-    // on `days=1` (the 24h preset).
-    bucketDays = days + 1;
+    // Rolling N-unit window crosses N unit boundaries → N+1 buckets. Without
+    // the +1, messages near the leading edge land in an unseeded bucket and
+    // get silently dropped.
+    bucketCount = Math.ceil((days * 86_400_000) / bucketMs) + 1;
   }
-  // Pull one row per message in range, bucket by the day each message landed
-  // on. "Sessions" per day = distinct session_ids that touched that day.
+
   const rows = db
     .prepare(
       `SELECT m.timestamp, m.session_id,
@@ -354,29 +361,43 @@ function _getDailySeries(days: number | null, projectId: string | null, modelFam
       cache_write_tokens: number;
       est_cost_usd: number;
     }>;
+
   const map = new Map<string, DailyPoint>();
-  const sessionsByDay = new Map<string, Set<string>>();
-  for (let i = 0; i < bucketDays; i++) {
+  const sessionsByBucket = new Map<string, Set<string>>();
+  for (let i = 0; i < bucketCount; i++) {
     const d = new Date();
-    d.setDate(d.getDate() - i);
-    d.setHours(0, 0, 0, 0);
-    const k = dayKey(d.getTime());
+    if (hourly) {
+      d.setHours(d.getHours() - i, 0, 0, 0);
+    } else {
+      d.setDate(d.getDate() - i);
+      d.setHours(0, 0, 0, 0);
+    }
+    const k = bucketKey(d, hourly);
     map.set(k, { day: k, sessions: 0, tokens: 0, cost: 0 });
-    sessionsByDay.set(k, new Set());
+    sessionsByBucket.set(k, new Set());
   }
   for (const r of rows) {
-    const k = dayKey(r.timestamp);
+    const k = bucketKey(new Date(r.timestamp), hourly);
     const p = map.get(k);
     if (!p) continue;
     p.tokens += r.input_tokens + r.output_tokens + r.cache_read_tokens + r.cache_write_tokens;
     p.cost += r.est_cost_usd;
-    sessionsByDay.get(k)!.add(r.session_id);
+    sessionsByBucket.get(k)!.add(r.session_id);
   }
-  for (const [k, set] of sessionsByDay) {
+  for (const [k, set] of sessionsByBucket) {
     const p = map.get(k);
     if (p) p.sessions = set.size;
   }
   return [...map.values()].sort((a, b) => a.day.localeCompare(b.day));
+}
+
+function bucketKey(d: Date, hourly: boolean): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  if (!hourly) return `${y}-${m}-${day}`;
+  const h = String(d.getHours()).padStart(2, '0');
+  return `${y}-${m}-${day} ${h}:00`;
 }
 
 export function getProviderBreakdown(): { provider: string; sessions: number; tokens: number; cost: number }[] {

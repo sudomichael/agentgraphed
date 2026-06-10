@@ -43,6 +43,7 @@ function pctDelta(cur: number, prev: number): { text: string; positive: boolean 
 
 type Metric = 'tokens' | 'sessions' | 'cost';
 type Scale = 'lin' | 'log';
+type ChartMode = 'area' | 'bar';
 
 function parseMetric(raw: string | undefined): Metric {
   return raw === 'sessions' || raw === 'cost' ? raw : 'tokens';
@@ -50,11 +51,14 @@ function parseMetric(raw: string | undefined): Metric {
 function parseScale(raw: string | undefined): Scale | null {
   return raw === 'lin' || raw === 'log' ? raw : null;
 }
+function parseChart(raw: string | undefined): ChartMode {
+  return raw === 'bar' ? 'bar' : 'area';
+}
 
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ range?: string; metric?: string; scale?: string; project?: string; model?: string }>;
+  searchParams: Promise<{ range?: string; metric?: string; scale?: string; chart?: string; project?: string; model?: string }>;
 }) {
   const sp = await searchParams;
   const rangeKey = parseRange(sp.range);
@@ -63,6 +67,7 @@ export default async function DashboardPage({
   const fullLabel = rangeLabel(rangeKey).toLowerCase();
   const metric = parseMetric(sp.metric);
   const scale = parseScale(sp.scale);
+  const chart = parseChart(sp.chart);
   const allProjects = getProjects();
   const projectId = sp.project && allProjects.some((p) => p.id === sp.project) ? sp.project : null;
   const modelFamilies = getModelFamilies();
@@ -139,7 +144,7 @@ export default async function DashboardPage({
                 </>
               )}
             </div>
-            <ShareButton imageUrl={`/api/share/dashboard?days=${days === null ? 'all' : days}&metric=${metric}${scale ? `&scale=${scale}` : ''}${projectId ? `&project=${projectId}` : ''}${modelFamily ? `&model=${encodeURIComponent(modelFamily)}` : ''}`} />
+            <ShareButton imageUrl={`/api/share/dashboard?days=${days === null ? 'all' : days}&metric=${metric}${scale ? `&scale=${scale}` : ''}${chart !== 'area' ? `&chart=${chart}` : ''}${projectId ? `&project=${projectId}` : ''}${modelFamily ? `&model=${encodeURIComponent(modelFamily)}` : ''}`} />
           </div>
         }
       />
@@ -170,7 +175,7 @@ export default async function DashboardPage({
           />
         </div>
 
-        <UsageChartCard data={daily} label={fullLabel} metric={metric} scale={scale} />
+        <UsageChartCard data={daily} label={fullLabel} metric={metric} scale={scale} chart={chart} />
 
         <div className="grid grid-cols-3 gap-4">
           <div className="card col-span-2">
