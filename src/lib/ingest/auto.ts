@@ -138,9 +138,19 @@ async function maybeSubmitLeaderboard(): Promise<void> {
       if (!hasNewActivity) return;
     }
 
+    // Self-asserted social links — newline-delimited URLs in the local
+    // setting, sent up as a string[] so the server can re-validate and
+    // upsert the profile row alongside the session batch. An explicit
+    // empty array tells the server "user cleared their links."
+    const socialLinks = (getSetting('leaderboard_social_links') ?? '')
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
     const payload = {
       handle,
       schema_version: LEADERBOARD_SCHEMA_VERSION,
+      social_links: socialLinks,
       sessions: sessions.map((s) => ({
         session_uuid: s.session_uuid,
         started_at: new Date(s.started_at).toISOString(),

@@ -2,20 +2,40 @@
 
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
-import { generateContextAction } from '@/app/sessions/[id]/actions';
+import { useRouter } from 'next/navigation';
+import { classifySessionAction, generateContextAction } from '@/app/sessions/[id]/actions';
 
 type Props = {
   sessionId: string;
   hasLlmKey: boolean;
   cachedContext: string | null;
+  // True when the current title is just the (heuristic) first prompt — show
+  // a "Title this session" button so the user doesn't have to wait for the
+  // background classifier to come around.
+  needsClassification: boolean;
 };
 
-export function SessionActions({ sessionId, hasLlmKey, cachedContext }: Props) {
+export function SessionActions({ sessionId, hasLlmKey, cachedContext, needsClassification }: Props) {
+  const router = useRouter();
   const [context, setContext] = useState<string | null>(cachedContext);
   const [contextCopied, setContextCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cost, setCost] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
+  const [classifyPending, startClassify] = useTransition();
+  const [classifyError, setClassifyError] = useState<string | null>(null);
+
+  const onClassify = () => {
+    setClassifyError(null);
+    startClassify(async () => {
+      const result = await classifySessionAction(sessionId);
+      if (!result.ok) {
+        setClassifyError(result.error);
+        return;
+      }
+      router.refresh();
+    });
+  };
 
   const onContext = () => {
     setError(null);
@@ -41,6 +61,16 @@ export function SessionActions({ sessionId, hasLlmKey, cachedContext }: Props) {
 
   return (
     <div className="flex items-center gap-2 relative">
+      {needsClassification && (
+        <button
+          onClick={onClassify}
+          disabled={!hasLlmKey || classifyPending}
+          title={hasLlmKey ? 'Run the classifier on just this session, right now' : 'Add an API key in Settings to enable'}
+          className="btn disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {classifyPending ? '… titling' : 'Title this session'}
+        </button>
+      )}
       <button
         onClick={onContext}
         disabled={!hasLlmKey || pending}
@@ -49,13 +79,14 @@ export function SessionActions({ sessionId, hasLlmKey, cachedContext }: Props) {
       >
         {pending ? '… summarizing' : contextCopied ? '✓ Copied' : context ? 'Copy summary' : 'Summarize for new chat'}
       </button>
-      {(error || (cost !== null && cost > 0) || !hasLlmKey) && (
+      {(error || classifyError || (cost !== null && cost > 0) || !hasLlmKey) && (
         <div className="absolute top-full right-0 mt-2 text-[11px] text-ink-mute flex items-center gap-2 whitespace-nowrap">
+          {classifyError && <span className="text-error">{classifyError}</span>}
           {error && <span className="text-error">{error}</span>}
           {cost !== null && cost > 0 && <span className="font-mono">cost ${cost.toFixed(4)}</span>}
           {!hasLlmKey && (
             <span>
-              summary needs <Link href="/settings" className="text-primary hover:underline">an API key</Link>
+              needs <Link href="/settings" className="text-primary hover:underline">an API key</Link>
             </span>
           )}
         </div>

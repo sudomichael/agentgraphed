@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { setSetting, getSessionsForLeaderboard } from '@/lib/queries';
+import { cleanSocialLinks } from '@/lib/social';
 
 const SUBMIT_ENDPOINT = 'https://agentgraphed.com/api/leaderboard/submit';
 const SUBMIT_TIMEOUT_MS = 8_000;
@@ -15,15 +16,25 @@ type Result =
 export async function setLeaderboardOptInAction(opts: {
   optIn: boolean;
   handle: string;
+  // Raw user-entered URL strings (one per slot). Cleaned + normalized
+  // here before storage so the local setting holds the canonical form
+  // and the wire payload sees the same URLs the server will accept.
+  socialLinks: string[];
 }): Promise<Result> {
   try {
     setSetting('leaderboard_opt_in', opts.optIn ? 'on' : 'off');
     if (opts.optIn) {
       setSetting('leaderboard_handle', opts.handle);
+      // Pre-clean locally so anything detectSocial rejects (malformed,
+      // http, > maxUrlLength) never even hits the setting. The server
+      // will also clean on its side as a defense in depth.
+      const cleaned = cleanSocialLinks(opts.socialLinks);
+      setSetting('leaderboard_social_links', cleaned.map((l) => l.url).join('\n'));
+
       // Best-effort immediate submission so the user sees their entry land
       // (or sees an error early). Server-side de-dupes by (handle, session_uuid)
       // so re-runs just refresh values.
-      const submitted = await submitNow(opts.handle).catch(() => null);
+      const submitted = await submitNow(opts.handle, cleaned.map((l) => l.url)).catch(() => null);
       if (submitted && submitted.ok) {
         setSetting('leaderboard_last_submitted_ms', String(Date.now()));
       }
@@ -45,7 +56,7 @@ export async function setLeaderboardOptInAction(opts: {
   }
 }
 
-async function submitNow(handle: string): Promise<{ ok: boolean; status: number; rowsWritten?: number } | null> {
+async function submitNow(handle: string, socialLinks: string[]): Promise<{ ok: boolean; status: number; rowsWritten?: number } | null> {
   const since = Math.max(0, Date.now() - LOOKBACK_MS);
   const sessions = getSessionsForLeaderboard(since);
   // If the user has no recent sessions, we still want to mark them as
@@ -55,6 +66,10 @@ async function submitNow(handle: string): Promise<{ ok: boolean; status: number;
   const payload = {
     handle,
     schema_version: SCHEMA_VERSION,
+    // Include social_links so the profile row is upserted in the same
+    // request as the session batch. The server treats an explicit empty
+    // array as "clear my links", so we always send it.
+    social_links: socialLinks,
     sessions: sessions.map((s) => ({
       session_uuid: s.session_uuid,
       started_at: new Date(s.started_at).toISOString(),
