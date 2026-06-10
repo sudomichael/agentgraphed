@@ -1,6 +1,6 @@
 {
   "name": "agentgraphed",
-  "version": "0.3.6",
+  "version": "0.4.0",
   "private": false,
   "description": "Claude Code usage monitor — local-first analytics dashboard for Claude Code & Codex CLI sessions. See every session, every project, every dollar. No login, no cloud.",
   "keywords": [

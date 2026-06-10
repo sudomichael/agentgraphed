@@ -3,8 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { setSetting, getRangeSummary, getModelBreakdown } from '@/lib/queries';
 
-const STUB_ENDPOINT = 'https://agentgraphed.com/api/leaderboard/submit';
-const STUB_TIMEOUT_MS = 5_000;
+const SUBMIT_ENDPOINT = 'https://agentgraphed.com/api/leaderboard/submit';
+const SUBMIT_TIMEOUT_MS = 5_000;
 
 type Result =
   | { ok: true; submitted: boolean; serverStatus?: number }
@@ -19,9 +19,9 @@ export async function setLeaderboardOptInAction(opts: {
     if (opts.optIn) {
       setSetting('leaderboard_handle', opts.handle);
       // Best-effort immediate submission so the user sees their entry land
-      // (or sees an error early). The endpoint is a stub for Phase 1 —
-      // server-side ranking + dedupe happens in Phase 2.
-      const submitted = await submitToStub(opts.handle).catch(() => null);
+      // (or sees an error early). Server-side de-dupes by (handle, week_iso)
+      // so re-runs in the same week just refresh the values.
+      const submitted = await submitNow(opts.handle).catch(() => null);
       if (submitted && submitted.ok) {
         setSetting('leaderboard_last_submitted_ms', String(Date.now()));
       }
@@ -38,7 +38,7 @@ export async function setLeaderboardOptInAction(opts: {
   }
 }
 
-async function submitToStub(handle: string): Promise<{ ok: boolean; status: number } | null> {
+async function submitNow(handle: string): Promise<{ ok: boolean; status: number } | null> {
   const week = getRangeSummary(7);
   const modelMix = getModelBreakdown(7).reduce<Record<string, number>>((acc, row) => {
     acc[row.model] = (acc[row.model] || 0) + row.tokens;
@@ -58,17 +58,18 @@ async function submitToStub(handle: string): Promise<{ ok: boolean; status: numb
     schema_version: 1,
   };
   const ctrl = new AbortController();
-  const timeout = setTimeout(() => ctrl.abort(), STUB_TIMEOUT_MS);
+  const timeout = setTimeout(() => ctrl.abort(), SUBMIT_TIMEOUT_MS);
   try {
-    const resp = await fetch(STUB_ENDPOINT, {
+    const resp = await fetch(SUBMIT_ENDPOINT, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
       signal: ctrl.signal,
     });
-    // We intentionally don't await resp.text() — Phase 1 endpoint just
-    // needs to ack with a 200. If it's not up yet we treat that as fine
-    // and quietly retry on the next render.
+    // We intentionally don't await resp.text() — the endpoint acks with
+    // a 200 and we don't need the body. Failure (non-2xx, timeout, network
+    // error) leaves the last_submitted_ms timestamp untouched so the
+    // periodic submitter in auto.ts retries on the next ingest tick.
     return { ok: resp.ok, status: resp.status };
   } catch {
     return null;

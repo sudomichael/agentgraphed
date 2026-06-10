@@ -4,6 +4,19 @@ All notable changes to this project will be documented here.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] — 2026-06-10
+
+### Added
+- **Optional opt-in leaderboard.** New `★ Leaderboard` entry in the sidebar opens `/leaderboard`, which explains the concept and shows you the literal JSON payload that would be sent for the current ISO week before asking you to opt in. Off by default. Local-first is unchanged for everyone who doesn't flip the switch.
+- **Anonymous handles**, suggested as friendly defaults ("neon-shipper", "turbo-engineer", etc.) — pick whatever you want, 2–24 chars, letters / numbers / dashes / underscores.
+- **Once-per-24h submitter** wired into the existing background scheduler. Sends headline aggregates only: tokens, sessions, projects, est. cost, model mix top-5. No prompts, no project names, no session content, no file paths.
+- **Public rankings live at <https://agentgraphed.com/leaderboard>** — sortable by est. cost (default), tokens, or sessions. Past weeks browseable via a week selector.
+- **Settings page** gets a pointer card linking to `/leaderboard` as the canonical home for opt-in.
+
+### Notes
+- First release with any cloud-touching functionality, hence the minor bump. The local-only contract is intact for users who never opt in — no telemetry, no phone-home, no auto-submit unless you explicitly enable it.
+- GitHub-OAuth claim path for handles is planned for a future release. Anonymous handles will always work.
+
 ## [0.3.6] — 2026-06-10
 
 ### Added

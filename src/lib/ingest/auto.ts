@@ -21,8 +21,8 @@ const DEBOUNCE_MS = 10_000;
 const TICK_MS = 5 * 60_000;
 const AUTO_CLASSIFY_THRESHOLD = 5;
 const LEADERBOARD_SUBMIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // once a day max
-const LEADERBOARD_STUB_ENDPOINT = 'https://agentgraphed.com/api/leaderboard/submit';
-const LEADERBOARD_STUB_TIMEOUT_MS = 5_000;
+const LEADERBOARD_ENDPOINT = 'https://agentgraphed.com/api/leaderboard/submit';
+const LEADERBOARD_TIMEOUT_MS = 5_000;
 let inFlight: Promise<void> | null = null;
 
 // Boot a single global setInterval that keeps re-triggering the ingest even
@@ -130,9 +130,9 @@ async function maybeSubmitLeaderboard(): Promise<void> {
     };
 
     const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), LEADERBOARD_STUB_TIMEOUT_MS);
+    const timeout = setTimeout(() => ctrl.abort(), LEADERBOARD_TIMEOUT_MS);
     try {
-      const resp = await fetch(LEADERBOARD_STUB_ENDPOINT, {
+      const resp = await fetch(LEADERBOARD_ENDPOINT, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),

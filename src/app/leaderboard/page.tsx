@@ -7,11 +7,9 @@ export const dynamic = 'force-dynamic';
 
 // What this page is for:
 //   - Local: explain the leaderboard concept, show the user *exactly* what
-//     would be sent, let them opt in (or out).
-//   - Public side (agentgraphed.com) — Phase 2: GitHub-OAuth handles + real
-//     rankings. For Phase 1 this page is "Coming soon" once a user opts in;
-//     submissions hit a stub endpoint so we can prove the wire format end
-//     to end without committing to the storage layer.
+//     would be sent, let them opt in (or out). Once opted in, the page
+//     shows last-submission status and links to the public rankings at
+//     agentgraphed.com/leaderboard.
 //
 // Honest framing throughout: local-only by default, leaderboard is opt-in,
 // and we show the literal payload that goes over the wire before asking.
@@ -74,9 +72,17 @@ export default async function LeaderboardPage() {
                   </div>
                 </div>
                 <div className="text-body-sm text-ink-mute leading-relaxed">
-                  Public rankings are <span className="text-ink-dim">coming soon</span>. While we
-                  finalize the public ranking page on agentgraphed.com, the in-app submission
-                  pipeline is shipping early so opted-in users start being counted from day one.
+                  Public rankings are live at{' '}
+                  <a
+                    href="https://agentgraphed.com/leaderboard"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-primary hover:underline"
+                  >
+                    agentgraphed.com/leaderboard
+                  </a>
+                  . The submitter posts your weekly stats once every 24 hours; if the last
+                  submission timestamp above is recent, your row is up to date.
                 </div>
                 <LeaderboardOptIn initialOptIn={optedIn} initialHandle={handle} />
               </div>

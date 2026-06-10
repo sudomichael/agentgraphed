@@ -11,8 +11,8 @@ import { setLeaderboardOptInAction } from '@/app/leaderboard/actions';
 //   - busy:         spinner state while the server action runs
 //
 // On opt-in the server action persists both settings (opt_in='on' +
-// handle), then triggers an immediate submission to the stub endpoint so
-// the user sees "last submission" populate without waiting a week.
+// handle), then triggers an immediate submission to the public endpoint
+// so the user sees "last submission" populate without waiting a week.
 
 type Props = {
   initialOptIn: boolean;
