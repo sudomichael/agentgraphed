@@ -102,24 +102,6 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="card">
-          <div className="card-header flex items-center justify-between">
-            <span>Leaderboard</span>
-            <span className="normal-case tracking-normal font-normal text-ink-mute text-[11px]">
-              opt-in · off by default
-            </span>
-          </div>
-          <div className="p-5 text-body-sm text-ink-dim leading-relaxed">
-            Compare your weekly stats with other AgentGraphed users. Nothing leaves your
-            machine unless you explicitly opt in — and even then only aggregated stats
-            (tokens, sessions, cost, model mix). No prompts, no project names, no
-            session content.{' '}
-            <a href="/leaderboard" className="text-primary hover:underline">
-              See exactly what gets sent →
-            </a>
-          </div>
-        </div>
-
         <div className="text-[11px] text-ink-mute font-mono space-y-0.5 px-1">
           <div>
             <span className="mr-2">data folder:</span>

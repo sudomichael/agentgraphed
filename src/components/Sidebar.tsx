@@ -56,23 +56,7 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="px-2 py-3 border-t border-surface-2 space-y-0.5">
-        {/* Leaderboard CTA — accented to read as a fun call-to-action, not a
-            plain nav entry. Opens the local /leaderboard page which explains
-            opt-in and (when enabled) shows the public ranking from
-            agentgraphed.com. */}
-        <Link
-          href="/leaderboard"
-          className={clsx(
-            'flex items-center gap-3 px-3 py-2 rounded text-[13px] transition-colors',
-            pathname.startsWith('/leaderboard')
-              ? 'bg-secondary/15 text-secondary border-l-2 border-secondary -ml-px'
-              : 'text-secondary/80 hover:text-secondary hover:bg-secondary/10',
-          )}
-        >
-          <span className="text-base w-4 text-center opacity-80">★</span>
-          <span>Leaderboard</span>
-        </Link>
+      <div className="px-2 py-3 border-t border-surface-2">
         <Link
           href="/settings"
           className={clsx(

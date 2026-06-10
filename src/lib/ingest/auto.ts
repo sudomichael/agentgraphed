@@ -12,7 +12,7 @@
 // COST NOTE: this is all local file IO. No API calls, no tokens, no money.
 
 import { runIngest } from './run';
-import { getSetting, setSetting, getRangeSummary, getModelBreakdown } from '../queries';
+import { getSetting, setSetting } from '../queries';
 import { clearMemo } from '../cache';
 import { classifyBatch, getUnclassifiedRows } from '../llm/classify';
 import { getLlmConfig } from '../llm/client';
@@ -20,9 +20,6 @@ import { getLlmConfig } from '../llm/client';
 const DEBOUNCE_MS = 10_000;
 const TICK_MS = 5 * 60_000;
 const AUTO_CLASSIFY_THRESHOLD = 5;
-const LEADERBOARD_SUBMIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // once a day max
-const LEADERBOARD_STUB_ENDPOINT = 'https://agentgraphed.com/api/leaderboard/submit';
-const LEADERBOARD_STUB_TIMEOUT_MS = 5_000;
 let inFlight: Promise<void> | null = null;
 
 // Boot a single global setInterval that keeps re-triggering the ingest even
@@ -69,7 +66,6 @@ export function triggerBackgroundIngest(): void {
         clearMemo();
       }
       await maybeAutoClassify();
-      await maybeSubmitLeaderboard();
     } catch {
       // Best-effort; never block the user on a transient failure.
     } finally {
@@ -95,65 +91,6 @@ async function maybeAutoClassify(): Promise<void> {
     // Auto-classify is best-effort; failures here are silent and the user
     // can still trigger classification manually from Settings.
   }
-}
-
-// If the user opted into the leaderboard, post their weekly aggregates to
-// the public endpoint at most once every 24 hours. Best-effort: a 5s
-// network timeout, errors swallowed, failure leaves the last_submitted_ms
-// timestamp untouched so we retry on the next ingest tick.
-async function maybeSubmitLeaderboard(): Promise<void> {
-  try {
-    if (getSetting('leaderboard_opt_in') !== 'on') return;
-    const handle = getSetting('leaderboard_handle');
-    if (!handle) return;
-    const lastRaw = getSetting('leaderboard_last_submitted_ms');
-    const lastMs = lastRaw ? parseInt(lastRaw, 10) : 0;
-    if (Date.now() - lastMs < LEADERBOARD_SUBMIT_INTERVAL_MS) return;
-
-    const week = getRangeSummary(7);
-    const modelMix = getModelBreakdown(7).reduce<Record<string, number>>((acc, row) => {
-      acc[row.model] = (acc[row.model] || 0) + row.tokens;
-      return acc;
-    }, {});
-    const payload = {
-      handle,
-      week_iso: weekIsoString(),
-      tokens: week.tokens,
-      sessions: week.sessions,
-      projects: week.projects,
-      est_cost_usd: Math.round(week.cost * 100) / 100,
-      active_days: week.active_months,
-      model_mix: Object.fromEntries(
-        Object.entries(modelMix).slice(0, 5).map(([m, t]) => [m, t]),
-      ),
-      schema_version: 1,
-    };
-
-    const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), LEADERBOARD_STUB_TIMEOUT_MS);
-    try {
-      const resp = await fetch(LEADERBOARD_STUB_ENDPOINT, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: ctrl.signal,
-      });
-      if (resp.ok) setSetting('leaderboard_last_submitted_ms', String(Date.now()));
-    } finally {
-      clearTimeout(timeout);
-    }
-  } catch {
-    // Best-effort; never block the user.
-  }
-}
-
-function weekIsoString(): string {
-  const d = new Date();
-  const tmp = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  tmp.setDate(tmp.getDate() + 4 - (tmp.getDay() || 7));
-  const yearStart = new Date(tmp.getFullYear(), 0, 1);
-  const week = Math.ceil((((tmp.getTime() - yearStart.getTime()) / 86_400_000) + 1) / 7);
-  return `${tmp.getFullYear()}-W${String(week).padStart(2, '0')}`;
 }
 
 // For pages that want to know how stale the data might be (e.g. for a small
