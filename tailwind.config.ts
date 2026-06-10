@@ -60,6 +60,22 @@ const config: Config = {
         lg: '8px',
         xl: '12px',
       },
+      keyframes: {
+        'toast-in': {
+          '0%': { opacity: '0', transform: 'translateY(8px)' },
+          '15%': { opacity: '1', transform: 'translateY(0)' },
+          '85%': { opacity: '1', transform: 'translateY(0)' },
+          '100%': { opacity: '0', transform: 'translateY(-4px)' },
+        },
+      },
+      animation: {
+        // Total duration is roughly matched to the JS-side toast TTLs in
+        // ShareButton (success: 2400ms, fallback: 3200ms, error: 3600ms).
+        // The 2.4s value here covers the success case smoothly; the longer
+        // toasts simply stay at 100% opacity past the animation end, which
+        // looks fine.
+        'toast-in': 'toast-in 2400ms ease-out forwards',
+      },
     },
   },
   plugins: [],

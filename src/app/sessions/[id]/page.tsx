@@ -29,6 +29,9 @@ export default async function SessionDetail({ params }: { params: Promise<{ id: 
     session.input_tokens + session.output_tokens + session.cache_read_tokens + session.cache_write_tokens;
   const hasLlmKey = getLlmConfig() !== null;
   const cached = await getSessionContext(id);
+  // Title is "raw" when neither the LLM summary nor heuristic_title is set —
+  // i.e., the title shown is just titleFromPrompt(first_prompt).
+  const needsClassification = !session.summary && !session.heuristic_title;
 
   return (
     <div>
@@ -52,6 +55,7 @@ export default async function SessionDetail({ params }: { params: Promise<{ id: 
               sessionId={id}
               hasLlmKey={hasLlmKey}
               cachedContext={cached?.context ?? null}
+              needsClassification={needsClassification}
             />
             <ShareButton imageUrl={`/api/share/session/${id}`} />
           </div>

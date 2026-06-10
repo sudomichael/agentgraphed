@@ -201,35 +201,88 @@ export async function GET(req: Request) {
               color: INK_MUTE, fontSize: 18,
             }}>No data in this range.</div>
           ) : (
-            <svg width={CHART_W} height={CHART_H} viewBox={`0 0 ${CHART_W} ${CHART_H}`} style={{ display: 'block' }}>
-              <defs>
-                <linearGradient id="grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={color} stopOpacity={0.4} />
-                  <stop offset="100%" stopColor={color} stopOpacity={0} />
-                </linearGradient>
-              </defs>
+            // Satori (the renderer behind next/og) doesn't support <text>
+            // SVG nodes. We render the chart as positioned <div>s plus an
+            // <svg> containing only <path>/<rect>, which Satori does
+            // accept. Text labels (gridline values, x-axis days) become
+            // absolutely-positioned divs.
+            <div style={{
+              position: 'relative', display: 'flex',
+              width: CHART_W, height: CHART_H,
+            }}>
+              {/* Y-axis grid lines + labels (rendered as divs) */}
               {gridLines.map((g, i) => (
-                <g key={i}>
-                  <line x1={PAD_L} y1={g.y} x2={CHART_W - PAD_R} y2={g.y} stroke={SURFACE_BORDER} strokeDasharray="2 4" />
-                  <text x={PAD_L - 8} y={g.y + 4} fill={INK_MUTE} fontSize="12" fontFamily="monospace" textAnchor="end">{g.label}</text>
-                </g>
+                <div
+                  key={`grid-${i}`}
+                  style={{
+                    position: 'absolute', display: 'flex',
+                    left: PAD_L, top: g.y, width: CHART_W - PAD_L - PAD_R,
+                    height: 1, backgroundColor: SURFACE_BORDER,
+                  }}
+                />
               ))}
-              {chartMode === 'area' ? (
-                <>
-                  <path d={area} fill="url(#grad)" />
+              {gridLines.map((g, i) => (
+                <div
+                  key={`ylabel-${i}`}
+                  style={{
+                    position: 'absolute', display: 'flex',
+                    left: 0, top: g.y - 6,
+                    width: PAD_L - 10, justifyContent: 'flex-end',
+                    color: INK_MUTE, fontSize: 12, fontFamily: 'monospace',
+                  }}
+                >
+                  {g.label}
+                </div>
+              ))}
+
+              {/* The chart curve / bars — Satori has flaky support for SVG
+                  gradients and fragments, so we use solid colors and
+                  render each shape as its own top-level <svg>. */}
+              {chartMode === 'area' && (
+                <svg
+                  width={CHART_W} height={CHART_H}
+                  viewBox={`0 0 ${CHART_W} ${CHART_H}`}
+                  style={{ display: 'block', position: 'absolute', left: 0, top: 0 }}
+                >
+                  <path d={area} fill={color} fillOpacity={0.25} />
                   <path d={line} fill="none" stroke={color} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
-                </>
-              ) : (
-                <>
+                </svg>
+              )}
+              {chartMode === 'bar' && (
+                <svg
+                  width={CHART_W} height={CHART_H}
+                  viewBox={`0 0 ${CHART_W} ${CHART_H}`}
+                  style={{ display: 'block', position: 'absolute', left: 0, top: 0 }}
+                >
                   {bars.map((b, i) => (
                     <rect key={i} x={b.x} y={b.y} width={b.w} height={b.h} fill={color} rx={2} />
                   ))}
-                </>
+                </svg>
               )}
-              {xLabels.map((l, i) => (
-                <text key={i} x={l.x} y={CHART_H - 4} fill={INK_MUTE} fontSize="12" fontFamily="monospace" textAnchor={i === 0 ? 'start' : i === xLabels.length - 1 ? 'end' : 'middle'}>{l.label}</text>
-              ))}
-            </svg>
+
+              {/* X-axis labels */}
+              {xLabels.map((l, i) => {
+                // Anchor: first = left, last = right, middle = center
+                const isFirst = i === 0;
+                const isLast = i === xLabels.length - 1;
+                const width = 80;
+                const left = isFirst ? l.x : isLast ? l.x - width : l.x - width / 2;
+                const justify = isFirst ? 'flex-start' : isLast ? 'flex-end' : 'center';
+                return (
+                  <div
+                    key={`xlabel-${i}`}
+                    style={{
+                      position: 'absolute', display: 'flex',
+                      left, top: CHART_H - 18, width,
+                      justifyContent: justify,
+                      color: INK_MUTE, fontSize: 12, fontFamily: 'monospace',
+                    }}
+                  >
+                    {l.label}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
 

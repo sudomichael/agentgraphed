@@ -50,6 +50,12 @@ export default async function LeaderboardPage() {
   const optedIn = getSetting('leaderboard_opt_in') === 'on';
   const handle = getSetting('leaderboard_handle') || '';
   const lastSubmittedAt = parseInt(getSetting('leaderboard_last_submitted_ms') || '0', 10);
+  // Newline-delimited raw URLs. Cleaned/normalized server-side before
+  // submit so this setting can hold the raw user-entered form.
+  const socialLinksRaw = (getSetting('leaderboard_social_links') ?? '')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   const week = getRangeSummary(7);
   const sessions = getSessionsForLeaderboard(Date.now() - LOOKBACK_MS);
@@ -97,6 +103,7 @@ export default async function LeaderboardPage() {
             userRank={userRank}
             preview={preview}
             previewJson={previewJson}
+            socialLinksRaw={socialLinksRaw}
           />
         ) : (
           <NotOptedInState
@@ -105,6 +112,7 @@ export default async function LeaderboardPage() {
             userRank={userRank}
             preview={preview}
             previewJson={previewJson}
+            socialLinksRaw={socialLinksRaw}
           />
         )}
       </div>
@@ -122,12 +130,14 @@ function NotOptedInState({
   userRank,
   preview,
   previewJson,
+  socialLinksRaw,
 }: {
   handle: string;
   week: { tokens: number; sessions: number; projects: number; cost: number };
   userRank: number | null;
   preview: Array<{ handle: string; tokens: number; sessions: number; est_cost_usd: number }>;
   previewJson: string;
+  socialLinksRaw: string[];
 }) {
   return (
     <>
@@ -201,7 +211,11 @@ function NotOptedInState({
               Anonymous · no email needed · opt out any time
             </div>
           </div>
-          <LeaderboardOptIn initialOptIn={false} initialHandle={handle} />
+          <LeaderboardOptIn
+            initialOptIn={false}
+            initialHandle={handle}
+            initialSocialLinks={socialLinksRaw}
+          />
         </div>
       </div>
 
@@ -274,6 +288,7 @@ function OptedInState({
   userRank,
   preview,
   previewJson,
+  socialLinksRaw,
 }: {
   handle: string;
   lastSubmittedAt: number;
@@ -281,6 +296,7 @@ function OptedInState({
   userRank: number | null;
   preview: Array<{ handle: string; tokens: number; sessions: number; est_cost_usd: number }>;
   previewJson: string;
+  socialLinksRaw: string[];
 }) {
   const profileUrl = `https://agentgraphed.com/u/${encodeURIComponent(handle)}`;
   return (
@@ -437,7 +453,7 @@ curl -X DELETE 'https://agentgraphed.com/api/leaderboard/my-data?handle=${handle
               (use the audit command above).
             </div>
           </div>
-          <LeaderboardOptIn initialOptIn={true} initialHandle={handle} />
+          <LeaderboardOptIn initialOptIn={true} initialHandle={handle} initialSocialLinks={socialLinksRaw} />
         </div>
       </div>
     </>
