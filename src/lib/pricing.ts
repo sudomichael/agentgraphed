@@ -43,6 +43,20 @@ const HARDCODED: Record<string, Price> = {
   'gpt-5-mini': { input: 0.25, output: 2, cacheRead: 0.025 },
   'gpt-4o': { input: 2.5, output: 10 },
   'gpt-4o-mini': { input: 0.15, output: 0.6 },
+  'opencode-go/deepseek-v4-flash': { input: 0.14, output: 0.28, cacheRead: 0.0028 },
+  'opencode-go/deepseek-v4-pro': { input: 1.74, output: 3.48, cacheRead: 0.0145 },
+  'opencode-go/glm-5': { input: 1.00, output: 3.20, cacheRead: 0.20 },
+  'opencode-go/glm-5.1': { input: 1.40, output: 4.40, cacheRead: 0.26 },
+  'opencode-go/kimi-k2.5': { input: 0.60, output: 3.00, cacheRead: 0.10 },
+  'opencode-go/kimi-k2.6': { input: 0.95, output: 4.00, cacheRead: 0.16 },
+  'opencode-go/mimo-v2.5': { input: 0.14, output: 0.28, cacheRead: 0.0028 },
+  'opencode-go/mimo-v2.5-pro': { input: 1.74, output: 3.48, cacheRead: 0.0145 },
+  'opencode-go/minimax-m2.5': { input: 0.30, output: 1.20, cacheRead: 0.06, cacheWrite: 0.375 },
+  'opencode-go/minimax-m2.7': { input: 0.30, output: 1.20, cacheRead: 0.06, cacheWrite: 0.375 },
+  'opencode-go/minimax-m3': { input: 0.30, output: 1.20, cacheRead: 0.06 },
+  'opencode-go/qwen3.6-plus': { input: 0.50, output: 3.00, cacheRead: 0.05, cacheWrite: 0.625 },
+  'opencode-go/qwen3.7-plus': { input: 0.40, output: 1.60, cacheRead: 0.04, cacheWrite: 0.50 },
+  'opencode-go/qwen3.7-max': { input: 2.50, output: 7.50, cacheRead: 0.50, cacheWrite: 3.125 },
 };
 
 // Build absolute path to embedded LiteLLM file at module load time.
@@ -207,6 +221,11 @@ export function normalizeModelName(model: string | null | undefined): string {
     const base = `GPT-${gpt[1]}`;
     if (gpt[2]) return `${base} ${gpt[2].charAt(0).toUpperCase() + gpt[2].slice(1)}`;
     return base;
+  }
+
+  // OpenCode Go — strip prefix for readable display names
+  if (m.startsWith('opencode-go/')) {
+    return m.replace('opencode-go/', 'OpenCode ');
   }
 
   return model;

@@ -257,7 +257,7 @@ export type SessionTokenBreakdownRow = {
   items: number;
 };
 export function getSessionTokenBreakdown(sessionId: string): SessionTokenBreakdownRow[] {
-  return getSqlite()
+  const rows = getSqlite()
     .prepare(
       `SELECT kind, source,
               SUM(bytes) AS bytes,
@@ -268,6 +268,56 @@ export function getSessionTokenBreakdown(sessionId: string): SessionTokenBreakdo
        ORDER BY est_tokens DESC`,
     )
     .all(sessionId) as SessionTokenBreakdownRow[];
+  if (rows.length > 0) return rows;
+
+  // Fallback for providers (e.g. opencode) that don't write tool_io rows.
+  // Build a synthetic breakdown from per-message token columns.
+  const msgs = getSqlite()
+    .prepare(
+      `SELECT role, content,
+              input_tokens, output_tokens, cache_read_tokens, cache_write_tokens
+       FROM messages WHERE session_id = ?
+       ORDER BY timestamp ASC`,
+    )
+    .all(sessionId) as {
+      role: string;
+      content: string;
+      input_tokens: number;
+      output_tokens: number;
+      cache_read_tokens: number;
+      cache_write_tokens: number;
+    }[];
+
+  if (msgs.length === 0) return [];
+
+  let userTokens = 0;
+  let userBytes = 0;
+  let userItems = 0;
+  let assistantTokens = 0;
+  let assistantBytes = 0;
+  let assistantItems = 0;
+
+  for (const m of msgs) {
+    const bytes = Buffer.byteLength(m.content, 'utf8');
+    if (m.role === 'user') {
+      userTokens += m.input_tokens || Math.ceil(bytes / 4);
+      userBytes += bytes;
+      userItems += 1;
+    } else {
+      assistantTokens += m.output_tokens || Math.ceil(bytes / 4);
+      assistantBytes += bytes;
+      assistantItems += 1;
+    }
+  }
+
+  const out: SessionTokenBreakdownRow[] = [];
+  if (userItems > 0) {
+    out.push({ kind: 'user_text', source: null, bytes: userBytes, est_tokens: userTokens, items: userItems });
+  }
+  if (assistantItems > 0) {
+    out.push({ kind: 'assistant_text', source: null, bytes: assistantBytes, est_tokens: assistantTokens, items: assistantItems });
+  }
+  return out;
 }
 
 // Pro-rated cost-aware breakdown. Each tool_io row carries a literal byte
@@ -827,12 +877,27 @@ export function getSessionsForLeaderboard(sinceMs: number): LeaderboardSessionRo
     .all(sinceMs) as LeaderboardSessionRow[];
 }
 
-export function getSessionMessages(sessionId: string) {
+export type MessageRow = {
+  id: string;
+  role: string;
+  content: string;
+  timestamp: number;
+  model: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  est_cost_usd: number;
+};
+
+export function getSessionMessages(sessionId: string): MessageRow[] {
   return getSqlite()
     .prepare(
-      `SELECT id, role, content, timestamp, model FROM messages WHERE session_id = ? ORDER BY timestamp ASC LIMIT 200`,
+      `SELECT id, role, content, timestamp, model,
+              input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, est_cost_usd
+       FROM messages WHERE session_id = ? ORDER BY timestamp ASC LIMIT 200`,
     )
-    .all(sessionId) as { id: string; role: string; content: string; timestamp: number; model: string | null }[];
+    .all(sessionId) as MessageRow[];
 }
 
 export function getAllSessions(opts: {

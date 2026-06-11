@@ -85,6 +85,7 @@ export default async function SessionDetail({ params }: { params: Promise<{ id: 
           <div className="p-5 space-y-3">
             {messages.map((m) => {
               const isUser = m.role === 'user';
+              const msgTokens = m.input_tokens + m.output_tokens + m.cache_read_tokens + m.cache_write_tokens;
               return (
                 <div key={m.id} className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
                   <div className={`flex flex-col max-w-[78%] ${isUser ? 'items-end' : 'items-start'}`}>
@@ -92,6 +93,12 @@ export default async function SessionDetail({ params }: { params: Promise<{ id: 
                       <span className="uppercase tracking-wider">{isUser ? 'you' : 'assistant'}</span>
                       <span>·</span>
                       <span>{fmtClock(m.timestamp)}</span>
+                      {msgTokens > 0 && (
+                        <>
+                          <span>·</span>
+                          <span>{fmtTokens(msgTokens)}</span>
+                        </>
+                      )}
                       {!isUser && m.model && (
                         <>
                           <span>·</span>
