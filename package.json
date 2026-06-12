@@ -24,7 +24,7 @@
     "url": "git+https://github.com/sudomichael/agentgraphed.git"
   },
   "bin": {
-    "agentgraphed": "./bin/agentgraphed.js"
+    "agentgraphed": "bin/agentgraphed.js"
   },
   "scripts": {
     "dev": "node scripts/fetch-pricing.mjs && next dev -p 3737",

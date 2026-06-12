@@ -31,7 +31,7 @@ function getOrCreateInstallId(): string {
 function readClientVersion(): string {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pkg = require('../../../../package.json') as { version?: string };
+    const pkg = require('../../../package.json') as { version?: string };
     return pkg.version ?? 'unknown';
   } catch {
     return 'unknown';
