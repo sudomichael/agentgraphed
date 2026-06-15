@@ -6,6 +6,8 @@ The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/
 
 ## [Unreleased]
 
+### Changed
+- **Bumped `better-sqlite3` from `^11.7.0` to `^12.10.1`** so `npx agentgraphed` installs and runs on current Node releases (e.g. Node 26). The 11.x line has no prebuilt binary for newer Node ABIs and fails to compile from source against their V8 headers, so a fresh install on a bleeding-edge Node would error out at `node-gyp`. 12.x ships the needed prebuilds. drizzle-orm's `better-sqlite3` peer range (`>=7`) already allows 12.x, and the runtime API used here is unchanged.
 ### Fixed
 - **A hung `git` call during ingest no longer freezes the dashboard.** Ingest resolves each project's git root/remote with synchronous `execSync('git ...')` calls. The server is single-threaded, so if a git invocation blocks — no controlling TTY under a service manager, a credential/keychain helper waiting on a GUI, a slow network mount, a sandboxed/TCC-protected working directory — it freezes the event loop and every request times out. Each git call now has a 5s `timeout`; on expiry it's killed and the repo is treated as unresolved so ingest continues.
 ### Added
