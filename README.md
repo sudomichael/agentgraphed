@@ -153,8 +153,75 @@ Environment variables:
 | `AGENTGRAPHED_DATA_DIR`   | `~/.agentgraphed`                         | Where to store the SQLite DB                   |
 | `AGENTGRAPHED_CLAUDE_DIR` | `~/.claude/projects`                      | Override Claude Code log location              |
 | `AGENTGRAPHED_CODEX_DIR`  | `~/.codex/sessions`                       | Override Codex log location                    |
+| `AGENTGRAPHED_NO_OPEN`    | _(unset)_                                 | Set to `1` to never open a browser (`--no-open`) |
 
 Log directories can also be edited at `Settings → Data sources` without restarting.
+
+## Run as a service
+
+To keep AgentGraphed running in the background so the dashboard is always at
+`http://localhost:3737`, run it with `--no-open` (or `AGENTGRAPHED_NO_OPEN=1`)
+under your OS service manager. The flag skips the browser launch, which would
+otherwise pop a window on every (re)start.
+
+### macOS (launchd)
+
+Save as `~/Library/LaunchAgents/com.agentgraphed.plist` (replace `YOU` with your
+username), then `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.agentgraphed.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.agentgraphed</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/env</string>
+        <string>npx</string>
+        <string>agentgraphed</string>
+        <string>--no-open</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>HOME</key>
+        <string>/Users/YOU</string>
+    </dict>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>/Users/YOU/Library/Logs/agentgraphed.log</string>
+    <key>StandardErrorPath</key><string>/Users/YOU/Library/Logs/agentgraphed.log</string>
+</dict>
+</plist>
+```
+
+### Linux (systemd user service)
+
+Save as `~/.config/systemd/user/agentgraphed.service`, then
+`systemctl --user enable --now agentgraphed` (and `loginctl enable-linger $USER`
+to keep it running after logout):
+
+```ini
+[Unit]
+Description=AgentGraphed
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/env npx agentgraphed --no-open
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+> **Node version note:** the bundled `better-sqlite3` ships prebuilt binaries
+> for current LTS releases. If `npx agentgraphed` fails to install on a very new
+> Node with a `node-gyp`/compile error, install and run under the latest LTS
+> (e.g. Node 22).
 
 ## Development
 

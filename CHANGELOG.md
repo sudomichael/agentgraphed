@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- **`agentgraphed --no-open` (and `AGENTGRAPHED_NO_OPEN=1`)** — boots the dashboard without launching a browser. Lets you run AgentGraphed headlessly: as a long-lived background service (launchd / systemd), in a container, or over SSH, where popping a browser is impossible or unwanted. The server still prints its URL. The new [Run as a service](README.md#run-as-a-service) section of the README shows ready-to-use macOS launchd and Linux systemd unit examples.
+
 ## [0.5.8] — 2026-06-11
 
 ### Added
