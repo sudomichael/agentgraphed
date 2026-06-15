@@ -13,6 +13,14 @@ type ResolvedProject = {
 
 const cache = new Map<string, ResolvedProject>();
 
+// Ingest runs these git calls synchronously on the single server thread, so a
+// git invocation that blocks (no controlling TTY under a service manager, a
+// credential/keychain helper waiting on a GUI, a slow network mount) would
+// freeze the whole event loop and hang every request. The `timeout` bounds
+// each call: on timeout execSync throws, we treat the repo as unresolved, and
+// ingest continues. stdin is already /dev/null so git can't wait on input.
+const GIT_TIMEOUT_MS = 5_000;
+
 function gitRoot(cwd: string): { root: string; remote: string | null } | null {
   if (!existsSync(cwd)) return null;
   try {
@@ -20,6 +28,8 @@ function gitRoot(cwd: string): { root: string; remote: string | null } | null {
       cwd,
       stdio: ['ignore', 'pipe', 'ignore'],
       encoding: 'utf8',
+      timeout: GIT_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
     }).trim();
     let remote: string | null = null;
     try {
@@ -27,6 +37,8 @@ function gitRoot(cwd: string): { root: string; remote: string | null } | null {
         cwd: root,
         stdio: ['ignore', 'pipe', 'ignore'],
         encoding: 'utf8',
+        timeout: GIT_TIMEOUT_MS,
+        killSignal: 'SIGKILL',
       }).trim();
     } catch {
       // no origin

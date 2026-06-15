@@ -38,6 +38,15 @@ switch (subcommand) {
 // drop people one click from being on the board.
 const wantsJoin = argv.includes('--join');
 
+// --no-open (or AGENTGRAPHED_NO_OPEN=1) runs the SAME boot flow but skips the
+// browser launch. Lets you run AgentGraphed headlessly — as a background
+// service (launchd / systemd), in a container, or over SSH — where popping a
+// browser is impossible or unwanted. The server still prints its URL.
+const noOpen =
+  argv.includes('--no-open') ||
+  process.env.AGENTGRAPHED_NO_OPEN === '1' ||
+  process.env.AGENTGRAPHED_NO_OPEN === 'true';
+
 function printHelp() {
   const version = require('../package.json').version;
   console.log(`AgentGraphed v${version} — local-first analytics for AI coding sessions
@@ -47,12 +56,15 @@ Usage:
   agentgraphed --join       Start the dashboard, opening the leaderboard
                             opt-in page so you can put yourself on the
                             public board at agentgraphed.com/leaderboard
+  agentgraphed --no-open    Start without opening a browser (headless /
+                            services / SSH). Just prints the URL.
   agentgraphed --help       Show this message
   agentgraphed --version    Print the installed version
 
 Environment:
   AGENTGRAPHED_DATA_DIR     Where to store the SQLite DB (default: ~/.agentgraphed)
   AGENTGRAPHED_PORT         Starting port to try (default: 3737)
+  AGENTGRAPHED_NO_OPEN      Set to 1 to never open a browser (same as --no-open)
 `);
 }
 
@@ -164,11 +176,15 @@ async function main() {
   // has the rename / social-links flow) instead of the dashboard.
   const startPath = wantsJoin ? '/leaderboard?join=1' : '/';
   const startUrl = `http://localhost:${port}${startPath}`;
-  try {
-    const { default: open } = await import('open');
-    await open(startUrl);
-  } catch {
-    console.log(`  (open ${startUrl} in your browser)`);
+  if (noOpen) {
+    console.log(`  (browser auto-open disabled — open ${startUrl})`);
+  } else {
+    try {
+      const { default: open } = await import('open');
+      await open(startUrl);
+    } catch {
+      console.log(`  (open ${startUrl} in your browser)`);
+    }
   }
 
   if (wantsJoin) {
