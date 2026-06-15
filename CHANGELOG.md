@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+- **A hung `git` call during ingest no longer freezes the dashboard.** Ingest resolves each project's git root/remote with synchronous `execSync('git ...')` calls. The server is single-threaded, so if a git invocation blocks — no controlling TTY under a service manager, a credential/keychain helper waiting on a GUI, a slow network mount, a sandboxed/TCC-protected working directory — it freezes the event loop and every request times out. Each git call now has a 5s `timeout`; on expiry it's killed and the repo is treated as unresolved so ingest continues.
+
 ## [0.5.8] — 2026-06-11
 
 ### Added
