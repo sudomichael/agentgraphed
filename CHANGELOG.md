@@ -4,6 +4,11 @@ All notable changes to this project will be documented here.
 
 The format is loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+- **Bumped `better-sqlite3` from `^11.7.0` to `^12.10.1`** so `npx agentgraphed` installs and runs on current Node releases (e.g. Node 26). The 11.x line has no prebuilt binary for newer Node ABIs and fails to compile from source against their V8 headers, so a fresh install on a bleeding-edge Node would error out at `node-gyp`. 12.x ships the needed prebuilds. drizzle-orm's `better-sqlite3` peer range (`>=7`) already allows 12.x, and the runtime API used here is unchanged.
+
 ## [0.5.8] — 2026-06-11
 
 ### Added
