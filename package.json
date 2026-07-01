@@ -33,7 +33,8 @@
     "prepack": "npm run build",
     "start": "node .next/standalone/server.js",
     "lint": "next lint",
-    "fetch-pricing": "node scripts/fetch-pricing.mjs"
+    "fetch-pricing": "node scripts/fetch-pricing.mjs",
+    "test:sources": "tsx src/lib/ingest/sources.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",
