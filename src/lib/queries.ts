@@ -33,6 +33,7 @@ export type SessionRow = {
   categories: string | null;  // JSON array as text; use sessionCategories() to parse
   keywords: string | null;
   git_branch: string | null;
+  source_tag: string | null;
 };
 
 const SESSION_FIELDS = `
@@ -42,7 +43,7 @@ const SESSION_FIELDS = `
   s.input_tokens, s.output_tokens, s.cache_read_tokens, s.cache_write_tokens,
   s.est_cost_usd, s.first_prompt, s.summary,
   s.heuristic_title, s.category, s.categories, s.keywords,
-  s.git_branch
+  s.git_branch, s.source_tag
 `;
 
 export const sessionCategories = _sessionCategories;
@@ -111,6 +112,7 @@ export function getTimeline(opts: {
   before?: number;
   projectId?: string;
   provider?: string;
+  source?: string;
   search?: string;
 } = {}): DayGroup[] {
   const limit = opts.limit ?? 60;
@@ -120,6 +122,7 @@ export function getTimeline(opts: {
   const params: unknown[] = [before];
   if (opts.projectId) { where.push('s.project_id = ?'); params.push(opts.projectId); }
   if (opts.provider)  { where.push('s.provider = ?');   params.push(opts.provider); }
+  if (opts.source)    { where.push('s.source_tag = ?'); params.push(opts.source); }
   if (opts.search) {
     where.push('(s.first_prompt LIKE ? OR s.summary LIKE ?)');
     const q = `%${opts.search}%`;
@@ -856,12 +859,14 @@ export function getAllSessions(opts: {
   offset?: number;
   provider?: string;
   projectId?: string;
+  source?: string;
 } = {}): SessionRow[] {
   const limit = opts.limit ?? 200;
   const offset = opts.offset ?? 0;
   const where: string[] = [];
   const params: unknown[] = [];
   if (opts.provider)  { where.push('s.provider = ?');   params.push(opts.provider); }
+  if (opts.source)    { where.push('s.source_tag = ?'); params.push(opts.source); }
   if (opts.projectId) { where.push('s.project_id = ?'); params.push(opts.projectId); }
   const wsql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   return getSqlite()
@@ -870,6 +875,20 @@ export function getAllSessions(opts: {
        ORDER BY s.started_at DESC LIMIT ? OFFSET ?`,
     )
     .all(...params, limit, offset) as SessionRow[];
+}
+
+// Distinct non-empty source tags across all sessions, alphabetical — feeds the
+// source filter <select> on the timeline and sessions pages.
+export function getSourceTags(): string[] {
+  return (
+    getSqlite()
+      .prepare(
+        `SELECT DISTINCT source_tag FROM sessions
+         WHERE source_tag IS NOT NULL AND source_tag <> ''
+         ORDER BY source_tag`,
+      )
+      .all() as { source_tag: string }[]
+  ).map((r) => r.source_tag);
 }
 
 export type DailyPoint = { day: string; sessions: number; tokens: number; cost: number };
