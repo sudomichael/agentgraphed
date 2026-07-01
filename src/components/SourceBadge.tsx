@@ -1,8 +1,6 @@
 // Stable per-tag color: hash the tag to an index into a fixed palette so the
 // same tag is always the same color across the app.
 const PALETTE = [
-  'bg-primary/15 text-primary',
-  'bg-secondary/15 text-secondary',
   'bg-emerald-500/15 text-emerald-400',
   'bg-amber-500/15 text-amber-400',
   'bg-violet-500/15 text-violet-400',

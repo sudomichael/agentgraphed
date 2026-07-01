@@ -21,7 +21,7 @@ export function parseSourceRows(rawJson: string | null): Source[] {
     if (!e || typeof e !== 'object') continue;
     const path = String((e as { path?: unknown }).path ?? '').trim();
     if (!path || seen.has(path)) continue;
-    const tag = String((e as { tag?: unknown }).tag ?? '').trim() || 'default';
+    const tag = String((e as { tag?: unknown }).tag ?? '').trim().slice(0, 60) || 'default';
     seen.add(path);
     out.push({ path, tag });
   }

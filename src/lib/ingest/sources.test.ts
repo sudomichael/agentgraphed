@@ -61,6 +61,12 @@ check('resolve: passes through non-empty rows', () => {
   ]);
 });
 
+check('parse: caps tag at 60 chars', () => {
+  const long = 'x'.repeat(100);
+  const out = parseSourceRows(`[{"path":"/a","tag":"${long}"}]`);
+  assert.equal(out[0].tag.length, 60);
+});
+
 if (failures > 0) {
   console.error(`\n${failures} test(s) failed`);
   process.exit(1);

@@ -23,6 +23,10 @@ async function savePaths(formData: FormData) {
   const codex = parseSourceRows((formData.get('codex_sources') as string) || '[]');
   setSetting('claude_sources', JSON.stringify(claude));
   setSetting('codex_sources', JSON.stringify(codex));
+  // Clearing the ingest cache forces the next scan to re-read every file and
+  // re-stamp source_tag, so renaming a tag or moving a path re-tags existing
+  // sessions (otherwise the mtime/size cache would skip unchanged files).
+  getSqlite().prepare('DELETE FROM ingest_state').run();
   revalidatePath('/settings');
   revalidatePath('/');
 }
@@ -95,7 +99,9 @@ export default function SettingsPage() {
               Add one row per log directory. The tag labels each source in the
               timeline and sessions views. Remove all rows to fall back to the
               default directory (shown as placeholder), tagged{' '}
-              <span className="font-mono">default</span>.
+              <span className="font-mono">default</span>. Changes apply after
+              the next scan — click &quot;Re-scan logs now&quot; to apply them
+              immediately.
             </p>
           </form>
           <div className="px-5 pb-5 border-t border-surface-2 pt-4">
