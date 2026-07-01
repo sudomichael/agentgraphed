@@ -63,6 +63,30 @@ agentgraphed
 4. Your browser opens to the dashboard automatically.
 5. To stop the server, hit `Ctrl+C`. Your indexed data stays at `~/.agentgraphed/agentgraphed.sqlite` for next time — even after Claude Code rotates the original log files off disk.
 
+### Troubleshooting: native `better-sqlite3` errors
+
+AgentGraphed uses `better-sqlite3`, a native module that compiles (or downloads
+a prebuilt binary) during install via an npm **install script**. If your npm is
+configured with `ignore-scripts=true` (common in hardened or corporate setups),
+that step is skipped and you'll hit errors on launch like:
+
+```
+Error: Could not locate the bindings file
+```
+
+or a `NODE_MODULE_VERSION` mismatch. The fix is to (re)install while allowing
+install scripts to run:
+
+```bash
+npm install -g agentgraphed --foreground-scripts --ignore-scripts=false
+# …or, if you run it with npx:
+npm_config_ignore_scripts=false npx agentgraphed
+```
+
+If it still fails, you likely need build tools for the native compile: Python 3
+and a C++ toolchain (`build-essential` on Debian/Ubuntu, Xcode Command Line
+Tools on macOS, or the "Desktop development with C++" workload on Windows).
+
 ## Screenshots
 
 <table>
